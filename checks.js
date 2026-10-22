@@ -1,7 +1,8 @@
-import { BOX_FACTS } from './presets.js';
+import { DEFAULT_BASE } from './presets.js';
 
 // Each check returns {level: 'error'|'warn'|'info', where, text}.
-// "error" = it cannot work on the box; "warn" = it works but hurts the experience.
+// "error" = Flex Launcher cannot use it; "warn" = it works but hurts the experience.
+// Checks read only the config. They do not guess what the HTPC has installed.
 export function runChecks(state) {
   const out = [];
   const { settings: s, menus, hotkeys } = state;
@@ -31,9 +32,8 @@ export function runChecks(state) {
       if (cmd.includes(';') && !cmd.startsWith('sh -c') && !e.action) {
         add('warn', where, `Command contains ";". Flex Launcher does not use a shell; wrap it in sh -c '...'.`);
       }
-      if (cmd === ':sleep' && state.target === 'box' && BOX_FACTS.sleepMasked) {
-        add('warn', where, 'Sleep targets are masked on the box, so this does nothing.');
-      }
+      if (cmd === ':select') add('error', where, ':select works only for keys and controller buttons, not in a menu entry.');
+      if (/^:fork\s*$/.test(cmd)) add('error', where, ':fork needs a command after it.');
       if (/wmctrl/.test(cmd)) add('info', where, 'Uses wmctrl after a fixed sleep to go full screen. It fails if the app starts slowly.');
       const key = iconKey(e);
       if (key) icons.set(key, (icons.get(key) || 0) + 1);
@@ -58,6 +58,9 @@ export function runChecks(state) {
   if (state.wall && state.wall.fx !== 'none' && !['Image', 'Slideshow'].includes(s.Background.Mode)) {
     add('warn', 'Wallpaper effect', 'The effect needs an image or slideshow background. With a colour background it is not drawn.');
   }
+  if (state.basePath === DEFAULT_BASE) {
+    add('warn', 'Install folder', `Paths use ${DEFAULT_BASE}. Set your real folder in Config, because Flex Launcher does not expand "~".`);
+  }
   if (state.dock?.on) add('info', 'Glass dock', 'The plate lines up only on a 1920x1080 screen. Export again after you change the layout.');
   if (s.General.OnLaunch === 'Quit') add('warn', 'General', 'OnLaunch=Quit: when an app closes you land on the desktop.');
   if (!s.General.InhibitOSScreensaver) add('warn', 'General', 'The OS screensaver can blank the TV while the launcher shows.');
@@ -72,14 +75,10 @@ export function runChecks(state) {
 }
 
 function commandChecks(state, cmd, where, add) {
+  if (cmd.startsWith(':fork ')) cmd = cmd.slice(6).trim();
   if (/flatpak run\s+flatpak run/.test(cmd)) add('error', where, '"flatpak run" is written twice.');
-  const fp = cmd.match(/flatpak run\s+(?:--\S+\s+)*([A-Za-z][\w-]*(?:\.[\w-]+){2,})/);
-  if (state.target === 'box' && fp && !BOX_FACTS.flatpaks.includes(fp[1])) {
-    add('error', where, `Flatpak ${fp[1]} is not installed on the box.`);
-  }
-  const bin = cmd.split(/\s+/)[0];
-  if (state.target === 'box' && bin && !/^[:/]/.test(bin) && bin !== 'sh' && !BOX_FACTS.commands.includes(bin)) {
-    add('warn', where, `"${bin}" was not found on the box in the audit. Install it first.`);
+  if (cmd.startsWith(':') && !/^:(submenu|fork|back|home|quit|left|right|select|shutdown|restart|sleep|exit)\b/.test(cmd)) {
+    add('error', where, `"${cmd.split(/\s/)[0]}" is not a Flex Launcher command.`);
   }
 }
 

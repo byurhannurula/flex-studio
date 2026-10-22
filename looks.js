@@ -45,6 +45,13 @@ export const LAYOUTS = {
       Object.assign(s.Layout, { MaxButtons: 6, IconSize: 130, IconSpacing: '7%', VCenter: 72 });
     },
   },
+  // Flex Launcher draws one row and splits the rest into pages, so a grid
+  // stays an example until there is a launcher that can draw one.
+  grid: {
+    label: 'Grid · 2–3 rows',
+    disabled: true,
+    mock: mockBar([12, 26, 40].map((y) => dots(y, 4.5, 5, 24, 18)).join(''), false),
+  },
   list: {
     label: 'List',
     disabled: true,
@@ -163,6 +170,41 @@ export const STYLES = {
       s.Background.OverlayOpacity = 12;
     },
   },
+  shelf: {
+    label: 'Shelf',
+    desc: 'Brand tiles on a glass shelf at the top',
+    layout: 'row',
+    bg: WALL.peaks,
+    wall: { fx: 'blur', strength: 70 },
+    apply: (s, st) => {
+      Object.assign(st.look, { style: 'brand', radius: 0.2, glyphScale: 0.5, focusFx: 'grow' });
+      st.focus = 'icon';
+      Object.assign(st.dock, { on: true, padX: 26, padY: 22, radius: 56, blur: 20, tintOpacity: 30, border: 25 });
+      s.Highlight.Enabled = false;
+      s.Titles.Enabled = false;
+      Object.assign(s.Layout, { MaxButtons: 6, IconSize: 230, IconSpacing: '1.5%', VCenter: 26 });
+      s.Clock.Enabled = false;
+      s.Background.OverlayOpacity = 0;
+    },
+  },
+  names: {
+    label: 'Names',
+    desc: 'App names on a thin glass plate, soft box on focus',
+    layout: 'row',
+    bg: WALL.lake,
+    apply: (s, st) => {
+      Object.assign(st.look, { style: 'label', focusFx: 'pill', dimOthers: true });
+      st.focus = 'icon';
+      // Negative padding makes the plate thinner than the square icons, so it
+      // wraps only the band where the names are.
+      Object.assign(st.dock, { on: true, padX: 30, padY: -78, radius: 34, blur: 30, tintOpacity: 12, border: 0 });
+      s.Highlight.Enabled = false;
+      s.Titles.Enabled = false;
+      Object.assign(s.Layout, { MaxButtons: 7, IconSize: 230, IconSpacing: '0.5%', VCenter: 74 });
+      Object.assign(s.Clock, { Alignment: 'Left', ShowDate: true });
+      s.Background.OverlayOpacity = 15;
+    },
+  },
   neon: {
     label: 'Neon',
     desc: 'Dark tiles, brand-colour glow on focus',
@@ -265,7 +307,7 @@ export function applyStyle(state, id) {
 }
 
 const TILE = {
-  glass: 'rgba(255,255,255,0.22)', dark: 'rgba(12,12,16,0.85)', light: 'rgba(255,255,255,0.78)', mono: 'rgba(255,255,255,0.12)', glyph: null,
+  glass: 'rgba(255,255,255,0.22)', dark: 'rgba(12,12,16,0.85)', light: 'rgba(255,255,255,0.78)', mono: 'rgba(255,255,255,0.12)', outline: 'rgba(0,0,0,0.14)', glyph: null, label: null,
 };
 const BRAND_FILLS = ['#17B2E7', '#FF0000', '#AA5CC3', '#E50914', '#00A8E1', '#1DB954', '#9146FF'];
 
@@ -326,7 +368,10 @@ export function styleThumb(st) {
     const darkGlyph = (iconSel && fx === 'fill' && st.look.style !== 'glyph') || (st.look.style === 'light' && !(iconSel && fx === 'brand'));
     const glyph = darkGlyph ? '#111' : st.look.style === 'mono' && !iconSel ? '#9A9AA2' : '#fff';
     const lift = iconSel && st.look.labelInSelected ? sz * 0.12 : 0;
-    out.push(`<rect x="${x + (sz - gs) / 2}" y="${y + (sz - gs) / 2 - lift}" width="${gs}" height="${gs}" rx="${gs * 0.3}" fill="${glyph}" opacity="${dim}"/>`);
+    if (iconSel && fx === 'pill') out.push(`<rect x="${x + sz * 0.08}" y="${y + sz * 0.36}" width="${sz * 0.84}" height="${sz * 0.28}" rx="${sz * 0.08}" fill="#fff" opacity="0.22"/>`);
+    if (st.look.style === 'outline') out.push(`<rect x="${tx}" y="${ty}" width="${tw}" height="${tw}" rx="${shapeR(tw)}" fill="none" stroke="#fff" stroke-width="0.6" opacity="${dim * 0.8}"/>`);
+    if (st.look.style === 'label') out.push(`<rect x="${x + sz * 0.18}" y="${y + sz * 0.44}" width="${sz * 0.64}" height="${sz * 0.12}" rx="${sz * 0.04}" fill="#fff" opacity="${dim}"/>`);
+    else out.push(`<rect x="${x + (sz - gs) / 2}" y="${y + (sz - gs) / 2 - lift}" width="${gs}" height="${gs}" rx="${gs * 0.3}" fill="${glyph}" opacity="${dim}"/>`);
     if (iconSel && st.look.labelInSelected) out.push(`<rect x="${x + sz * 0.25}" y="${y + sz * 0.84}" width="${sz * 0.5}" height="1.4" rx="0.7" fill="${glyph}"/>`);
     if (s.Titles.Enabled) out.push(`<rect x="${x + sz * 0.2}" y="${y + sz + s.Titles.Padding * k}" width="${sz * 0.6}" height="${Math.max(1.4, s.Titles.FontSize * k * 0.6)}" rx="0.7" fill="${s.Titles.Color}" opacity="${(s.Titles.Opacity / 100) * 0.9}"/>`);
   }

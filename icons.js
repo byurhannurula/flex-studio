@@ -9,6 +9,9 @@ export const ICON_STYLES = {
   dark: { label: 'Dark', tile: 'rgba(14,14,18,0.80)', border: 'rgba(255,255,255,0.08)', glyph: '#F4F4F5', selTile: '#FFFFFF', selGlyph: '#111111' },
   light: { label: 'Light', tile: 'rgba(255,255,255,0.66)', border: 'rgba(255,255,255,0.9)', glyph: '#1C1C1E', selTile: '#FFFFFF', selGlyph: '#000000', shadow: true },
   brand: { label: 'Brand', tile: 'brand', border: 'rgba(255,255,255,0.10)', glyph: 'auto', selTile: '#FFFFFF', selGlyph: 'brand' },
+  outline: { label: 'Outline', tile: 'rgba(0,0,0,0.14)', border: 'rgba(255,255,255,0.8)', borderW: 0.012, glyph: '#FFFFFF', selTile: '#FFFFFF', selGlyph: '#111111' },
+  // The app name in place of a logo.
+  label: { label: 'Label only', tile: null, glyph: '#FFFFFF', selTile: null, selGlyph: '#FFFFFF', text: true },
   mono: { label: 'Mono', tile: 'rgba(255,255,255,0.07)', border: 'rgba(255,255,255,0.14)', glyph: '#9A9AA2', selTile: '#FFFFFF', selGlyph: '#111111' },
   glyph: { label: 'Glyph only', tile: null, glyph: '#FFFFFF', selTile: null, selGlyph: '#FFFFFF' },
 };
@@ -54,6 +57,22 @@ function glyphMarkup(icon, colour, box, offset, title, dy = 0) {
   return `<text x="${mid}" y="${mid + dy}" fill="${colour}" font-family="Helvetica, Arial, sans-serif" font-size="${box * 0.9}" font-weight="600" text-anchor="middle" dominant-baseline="central">${letter}</text>`;
 }
 
+// Split a long title over two lines at the space nearest the middle.
+function titleLines(title) {
+  const s = String(title || '?').trim();
+  if (s.length <= 10 || !s.includes(' ')) return [s];
+  let best = -1;
+  for (let i = 0; i < s.length; i++) if (s[i] === ' ' && (best < 0 || Math.abs(i - s.length / 2) < Math.abs(best - s.length / 2))) best = i;
+  return [s.slice(0, best), s.slice(best + 1)];
+}
+
+function textBlock(title, size, width) {
+  const lines = titleLines(title);
+  const longest = Math.max(...lines.map((l) => l.length), 1);
+  const fs = Math.min(size * 0.17, width / (longest * 0.56));
+  return { lines, fs, w: longest * fs * 0.56, h: lines.length * fs * 1.15 };
+}
+
 export const SHAPES = { rounded: 'Rounded', squircle: 'Squircle', circle: 'Circle' };
 
 // What the _selected.png adds. Effects that draw outside the tile (ring, glow)
@@ -65,6 +84,7 @@ export const FOCUS_FX = {
   ring: { label: 'Ring', inset: [0.11, 0.11] },
   glow: { label: 'Glow', inset: [0.14, 0.14] },
   bar: { label: 'Bar', inset: [0.1, 0.1] },
+  pill: { label: 'Soft box', inset: [0.05, 0.05] },
 };
 
 // Superellipse, sampled, because SVG has no squircle primitive.
@@ -133,7 +153,10 @@ export function iconSvg(icon, look, { size, selected = false, title = '' }) {
   }
   if (tileFill) {
     parts.push(shapeEl(shape, inset, inset, tileSize, radius, `fill="${tileFill}"${shadow ? ' filter="url(#s)"' : ''}`));
-    if (style.border && !recolour) parts.push(shapeEl(shape, inset + 0.75, inset + 0.75, tileSize - 1.5, Math.max(0, radius - 0.75), `fill="none" stroke="${style.border}" stroke-width="1.5"`));
+    if (style.border && !recolour) {
+      const bw = Math.max(1.5, size * (style.borderW || 0));
+      parts.push(shapeEl(shape, inset + bw / 2, inset + bw / 2, tileSize - bw, Math.max(0, radius - bw / 2), `fill="none" stroke="${style.border}" stroke-width="${bw.toFixed(1)}"`));
+    }
   }
   if (fx === 'glow') {
     const glow = brand === '#2A2A30' ? '#FFFFFF' : brand;
@@ -143,6 +166,12 @@ export function iconSvg(icon, look, { size, selected = false, title = '' }) {
     const gap = size * 0.045;
     const sw = size * 0.022;
     parts.push(shapeEl(shape, inset - gap, inset - gap, tileSize + gap * 2, radius + gap, `fill="none" stroke="#FFFFFF" stroke-width="${sw.toFixed(1)}"`));
+  }
+  const text = style.text ? textBlock(title, size, tileSize * 0.94) : null;
+  if (fx === 'pill') {
+    const w = text ? Math.min(size * 0.98, text.w + size * 0.14) : tileSize * 0.86;
+    const h = text ? text.h + size * 0.1 : tileSize * 0.86;
+    parts.push(`<rect x="${(size - w) / 2}" y="${(size - h) / 2}" width="${w}" height="${h}" rx="${Math.min(h / 2, size * 0.08)}" fill="#FFFFFF" fill-opacity="0.2"/>`);
   }
   if (fx === 'bar') {
     const bw = size * 0.3;
@@ -154,7 +183,10 @@ export function iconSvg(icon, look, { size, selected = false, title = '' }) {
     const fs = Math.min(unit * 0.19, (tileSize * 0.96) / Math.max(1, title.length * 0.56));
     label = `<text x="${size / 2}" y="${inset + unit * 0.86}" fill="${glyph}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="${fs.toFixed(1)}" font-weight="600" text-anchor="middle">${esc(title)}</text>`;
   }
-  const body = `${parts.join('')}${glyphMarkup(icon, glyph, box, offset, title, dy)}${label}`;
+  const mark = text
+    ? `<text x="${size / 2}" y="${size / 2 - text.h / 2 + text.fs * 0.88}" fill="${glyph}" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="${text.fs.toFixed(1)}" font-weight="600" text-anchor="middle">${text.lines.map((l, i) => `<tspan x="${size / 2}" dy="${i ? text.fs * 1.15 : 0}">${esc(l)}</tspan>`).join('')}</text>`
+    : glyphMarkup(icon, glyph, box, offset, title, dy);
+  const body = `${parts.join('')}${mark}${text ? '' : label}`;
   const dim = !selected && look.dimOthers ? ' opacity="0.5"' : '';
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${defs.length ? `<defs>${defs.join('')}</defs>` : ''}<g${dim}>${body}</g></svg>`;
 }

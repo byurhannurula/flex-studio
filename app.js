@@ -1,12 +1,16 @@
 import { SCHEMA, parseIni, defaultSettings } from './ini.js';
-import { CATALOG, CATALOG_BY_ID, matchCatalog } from './catalog.js';
+import { CATALOG, CATALOG_BY_ID, ACTIONS, matchCatalog } from './catalog.js';
 import { BRANDS } from './brands.js';
 import { GLYPHS } from './glyphs.js';
 import { ICON_STYLES, SHAPES, FOCUS_FX, iconSvg, svgUrl } from './icons.js';
-import { PRESETS, BOX_FACTS } from './presets.js';
+import { PRESETS, DEFAULT_BASE } from './presets.js';
+
+// Presets for one person's HTPC live in an optional file that a published copy leaves out.
+const LOCAL_PRESETS = await import('./presets.local.js').then((m) => m.LOCAL_PRESETS).catch(() => ({}));
+const ALL_PRESETS = { ...PRESETS, ...LOCAL_PRESETS };
 import { runChecks } from './checks.js';
 import { configText, exportBundle, download, assetPath } from './export.js';
-import { Stage, FONT_FILES, sdlKeycode, keyLabel } from './stage.js';
+import { Stage, FONT_FILES, registerFont, sdlKeycode, keyLabel } from './stage.js';
 import { DOCK_DEFAULTS, WALL_DEFAULTS, WALL_FX, dockActive, wallsMade, plateRect, composite } from './dock.js';
 import { LAYOUTS, STYLES, applyStyle, styleThumb, styleBackground, styleFilter } from './looks.js';
 
@@ -24,9 +28,9 @@ const ICONS = {
   look: 'M12 3a9 9 0 1 0 0 18c.9 0 1.5-.7 1.5-1.5 0-.4-.1-.8-.4-1-.3-.3-.4-.7-.4-1.1 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.3-4-7.9-9-7.9zM7.5 12.5h.01M9 8h.01M14.5 7.5h.01M17.5 11.5h.01',
   wallpaper: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15.5 9h.01',
   keys: 'M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8',
-  settings: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
   checks: 'M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6zM9 12l2 2 4-4',
-  export: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+  export: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
+  download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
   grip: 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
   up: 'M12 19V5M6 11l6-6 6 6',
   down: 'M12 5v14M6 13l6 6 6-6',
@@ -46,9 +50,8 @@ const VIEWS = [
   { id: 'look', label: 'Look', title: 'Look', desc: 'Icons, focus, layout, titles and clock.' },
   { id: 'wallpaper', label: 'Wallpaper', title: 'Wallpaper', desc: 'Background, dimming and screensaver.' },
   { id: 'keys', label: 'Remote', title: 'Remote and behaviour', desc: 'Hotkeys, gamepad and what happens on launch.' },
-  { id: 'settings', label: 'Settings', title: 'All settings', desc: 'Every Flex Launcher setting. A dot marks a value that is not the default.' },
-  { id: 'checks', label: 'Checks', title: 'Checks', desc: 'Problems in this config, tested against your box.' },
-  { id: 'export', label: 'Export', title: 'Export', desc: 'config.ini, icons, wallpapers and fonts for the box.' },
+  { id: 'checks', label: 'Checks', title: 'Checks', desc: 'Problems in this config. Checks read only the config, not your HTPC.' },
+  { id: 'export', label: 'Config', title: 'Config and export', desc: 'Every Flex Launcher setting, the config.ini, and the download for your HTPC.' },
 ];
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -75,11 +78,11 @@ const toEntries = (menus) => Object.fromEntries(Object.entries(menus).map(([name
 const LOOK_EXTRAS = { labelInSelected: false, dimOthers: false, shape: 'rounded', focusFx: 'fill' };
 
 function fromPreset(key) {
-  const p = PRESETS[key];
-  const parsed = parseIni(p.text);
+  const p = ALL_PRESETS[key];
+  const basePath = p.basePath || DEFAULT_BASE;
+  const parsed = parseIni(p.text.replaceAll('{BASE}', basePath));
   return {
     preset: key,
-    target: key === 'blank' ? 'generic' : 'box',
     settings: parsed.settings,
     menus: toEntries(parsed.menus),
     hotkeys: parsed.hotkeys,
@@ -89,8 +92,9 @@ function fromPreset(key) {
     layout: 'row',
     dock: { ...DOCK_DEFAULTS },
     wall: { ...WALL_DEFAULTS },
-    basePath: BOX_FACTS.basePath,
+    basePath,
     uploads: [],
+    fonts: [],
   };
 }
 
@@ -100,11 +104,12 @@ function load() {
     const raw = localStorage.getItem(STORE);
     if (raw) saved = JSON.parse(raw);
   } catch {
-    // Private mode or bad data: start from the box preset.
+    // Private mode or bad data: start from the starter preset.
   }
-  if (!saved) return fromPreset('box');
+  if (!saved) return fromPreset('starter');
   // Fill fields added after the state was saved.
   saved.layout ??= 'row';
+  saved.fonts ??= [];
   saved.dock = { ...DOCK_DEFAULTS, ...saved.dock };
   saved.wall = { ...WALL_DEFAULTS, ...saved.wall };
   saved.look = { ...LOOK_EXTRAS, ...saved.look };
@@ -112,9 +117,10 @@ function load() {
 }
 
 let state = load();
+for (const f of state.fonts) registerFont(f.file, f.label, f.data);
 const DEFAULTS = defaultSettings();
 const events = [];
-const ui = { view: 'apps', editMenu: state.settings.General.DefaultMenu, editUid: null, iconTab: 'brand', filter: '', open: new Set(['Layout']) };
+const ui = { customHk: null, customGp: null, view: 'apps', editMenu: state.settings.General.DefaultMenu, editUid: null, iconTab: 'brand', filter: '', open: new Set(['Layout']) };
 let saveWarned = false;
 
 function save() {
@@ -261,8 +267,14 @@ const sec = (title, body, extra = '') => `<section class="sec"><h3>${esc(title)}
 
 function fontSelect(section) {
   const cur = (state.settings[section].Font || '').split('/').pop();
-  return `<select data-font="${section}" aria-label="${section} font">${Object.entries(FONT_FILES).map(([f, n]) => `<option value="${f}" ${f === cur ? 'selected' : ''}>${esc(n.replace('FS ', ''))}</option>`).join('')}</select>`;
+  const n = nextId('font');
+  return `<div class="font-pick" role="radiogroup" aria-label="${section} font">${Object.entries(FONT_FILES).filter(([f, v]) => !v.own || state.fonts.some((x) => x.file === f)).map(([f, v]) => `
+    <input type="radio" id="${n}-${esc(f)}" name="${n}" value="${esc(f)}" data-font="${section}" ${f === cur ? 'checked' : ''}><label for="${n}-${esc(f)}" style="font-family:'${v.family}', sans-serif">${esc(v.label)}</label>`).join('')}</div>`;
 }
+
+const fontRow = (label, section) => `<div class="ctl stack"><span class="lbl">${esc(label)}</span>${fontSelect(section)}
+  <div class="add-row"><button type="button" class="btn sm" data-font-upload="${section}">${svg(ICONS.upload, 14)}Upload a font</button>
+  <span class="hint">.ttf or .otf, for example Mori, Pangram Sans or Neue Montreal</span></div></div>`;
 
 // Generic control for any SCHEMA setting, used by All settings.
 function schemaControl(secName, key, spec) {
@@ -313,31 +325,25 @@ function applyInput(el) {
   return true;
 }
 
-// ---------- chrome: app bar, rail, TV head, remote ----------
+// ---------- chrome: app bar, tabs, TV head, remote ----------
 
 function renderChrome() {
   const checks = runChecks(state);
   const errors = checks.filter((c) => c.level === 'error');
   const warns = checks.filter((c) => c.level === 'warn');
-  const top = errors[0] || warns[0];
-  const h = $('#health');
-  h.className = `health ${errors.length ? 'err' : warns.length ? 'warn' : ''}`;
-  h.innerHTML = `<span class="dot"></span><strong>${errors.length ? `${errors.length} error${errors.length > 1 ? 's' : ''}` : warns.length ? `${warns.length} warning${warns.length > 1 ? 's' : ''}` : 'No problems'}</strong>${top ? `<span>${esc(top.where)}: ${esc(top.text)}</span>` : ''}`;
-  h.setAttribute('aria-label', `Checks: ${errors.length} errors, ${warns.length} warnings. Open checks.`);
-
-  $('#preset').innerHTML = `${state.preset ? '' : '<option selected>Imported config</option>'}${Object.entries(PRESETS).map(([k, p]) => `<option value="${k}" ${state.preset === k ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}`;
-
-  $('#rail').innerHTML = VIEWS.map((v) => {
+  const tabFocused = document.activeElement?.closest?.('#tabs');
+  $('#tabs').innerHTML = VIEWS.map((v) => {
+    const on = ui.view === v.id;
     const count = v.id === 'checks' && (errors.length || warns.length) ? `<span class="count ${errors.length ? '' : 'warn'}">${errors.length || warns.length}</span>` : '';
-    const spacer = v.id === 'checks' ? '<span class="spacer"></span>' : '';
-    return `${spacer}<button type="button" data-view="${v.id}" ${ui.view === v.id ? 'aria-current="page"' : ''}>${svg(ICONS[v.id], 21)}<span>${v.label}</span>${count}</button>`;
+    return `<button type="button" role="tab" id="tab-${v.id}" aria-controls="panel" aria-selected="${on}" tabindex="${on ? 0 : -1}" data-view="${v.id}">${svg(ICONS[v.id], 18)}<span>${v.label}</span>${count}</button>`;
   }).join('');
+  if (tabFocused) $(`#tab-${ui.view}`).focus();
 
   const scr = stage.sim.screen;
   const status = scr === 'launcher' ? 'Launcher' : scr === 'app' ? `App running: ${stage.sim.app?.title || ''}` : scr === 'desktop' ? 'Stranded on the desktop' : 'Power off';
   $('#tv-head').innerHTML = `<div class="crumbs" role="group" aria-label="Go to menu"><span class="label">Menu</span>${Object.keys(state.menus).map((m) =>
     `<button type="button" class="chip" data-goto="${esc(m)}" aria-pressed="${scr === 'launcher' && stage.menuName === m}">${esc(m)}</button>`).join('')}</div>
-    <span class="grow"></span><span class="screen-state"><span class="led ${scr === 'launcher' || scr === 'app' ? '' : 'off'}"></span>${esc(status)}</span>`;
+    <span class="grow"></span><span class="screen-state" title="Simulation. Nothing runs on your HTPC."><span class="led ${scr === 'launcher' || scr === 'app' ? '' : 'off'}"></span>Simulated · ${esc(status)}</span>`;
 
   const mode = document.documentElement.dataset.theme || 'auto';
   $('#theme').innerHTML = svg(ICONS[mode === 'light' ? 'sun' : mode === 'dark' ? 'moon' : 'auto'], 18);
@@ -358,7 +364,7 @@ function renderRemote() {
 // ---------- panel ----------
 
 // A redraw replaces the DOM; find the same control again so keyboard focus stays.
-const FOCUS_ATTRS = ['data-s', 'data-t', 'data-font', 'data-style', 'data-style-preset', 'data-layout', 'data-wall', 'data-clock', 'data-menu-pick', 'data-icon-tab', 'data-pick', 'data-move', 'data-remove', 'data-hk', 'data-icon', 'data-edit'];
+const FOCUS_ATTRS = ['data-s', 'data-t', 'data-font', 'data-style', 'data-style-preset', 'data-layout', 'data-wall', 'data-clock', 'data-menu-pick', 'data-icon-tab', 'data-pick', 'data-move', 'data-remove', 'data-hk', 'data-hk-act', 'data-gp-act', 'data-gp-in', 'data-step', 'data-dim', 'data-font-upload', 'data-icon', 'data-edit'];
 function focusSelector(el) {
   if (!el || !$('#panel').contains(el)) return null;
   const attr = FOCUS_ATTRS.find((a) => el.hasAttribute(a));
@@ -375,9 +381,10 @@ function renderPanel() {
   const v = VIEWS.find((x) => x.id === ui.view);
   $('#panel-title').textContent = v.title;
   $('#panel-desc').textContent = v.desc;
+  $('#panel').setAttribute('aria-labelledby', `tab-${v.id}`);
   const body = $('#panel');
   const scroll = body.scrollTop;
-  const views = { apps: viewApps, look: viewLook, wallpaper: viewWallpaper, keys: viewKeys, settings: viewSettings, checks: viewChecks, export: viewExport };
+  const views = { apps: viewApps, look: viewLook, wallpaper: viewWallpaper, keys: viewKeys, checks: viewChecks, export: viewExport };
   keepFocus(() => {
     body.innerHTML = views[ui.view]();
     if (ui.view === 'apps') renderEntryList();
@@ -445,11 +452,11 @@ function editorHtml(e) {
   const pressed = (icon) => e.icon?.kind === icon.kind && (icon.ref === undefined || e.icon.ref === icon.ref);
   const opt = (icon, label) => `<button type="button" data-icon='${esc(JSON.stringify(icon))}' aria-label="${esc(label)}" aria-pressed="${pressed(icon)}"><img alt="" src="${thumb(icon, e.title, 80)}"></button>`;
   let grid = '';
-  if (ui.iconTab === 'brand') grid = `<div class="icon-grid" role="group" aria-label="Brand logos">${Object.entries(BRANDS).map(([k, b]) => opt({ kind: 'brand', ref: k }, b.title)).join('')}</div>`;
+  if (ui.iconTab === 'brand') grid = `<div class="icon-grid" role="group" aria-label="Brand logos">${Object.entries(BRANDS).sort((a, b) => a[1].title.localeCompare(b[1].title)).map(([k, b]) => opt({ kind: 'brand', ref: k }, b.title)).join('')}</div>`;
   else if (ui.iconTab === 'glyph') grid = `<div class="icon-grid" role="group" aria-label="Generic icons">${Object.keys(GLYPHS).map((k) => opt({ kind: 'glyph', ref: k }, k)).join('')}${opt({ kind: 'letter' }, 'First letter')}</div>`;
   else grid = `<p class="hint">PNG or WebP. The export scales it to ${state.settings.Layout.IconSize} px.</p>
     <div class="export-row"><button type="button" class="btn sm" data-upload-icon>${svg(ICONS.upload, 14)}Choose file</button>
-    ${e.iconPath ? '<button type="button" class="btn sm" data-keep-icon>Use the file on the box</button>' : ''}</div>
+    ${e.iconPath ? '<button type="button" class="btn sm" data-keep-icon>Use the file on the HTPC</button>' : ''}</div>
     ${e.icon?.kind === 'keep' ? `<p class="hint mono">${esc(e.iconPath)}</p>` : ''}`;
   return `<div class="editor">
     <div class="editor-head"><img alt="" src="${thumb(e.icon, e.title, 96)}"><strong>${esc(e.title || 'Entry')}</strong><span class="grow"></span>
@@ -480,13 +487,20 @@ function addEntry(id) {
     ? { uid: uid(), title: app.title, cmd: app.cmd, action: '', iconPath: '', appId: app.id, icon: app.brand ? { kind: 'brand', ref: app.brand } : { kind: 'glyph', ref: app.glyph } }
     : { uid: uid(), title: 'New app', cmd: '', action: '', iconPath: '', appId: null, icon: { kind: 'letter' } };
   const sub = entry.cmd.match(/^:submenu\s+(.+)$/);
-  if (sub && !state.menus[sub[1]]) state.menus[sub[1]] = [backEntry()];
+  if (sub && !state.menus[sub[1]]) state.menus[sub[1]] = sub[1] === 'Quick settings' ? quickMenu() : [backEntry()];
   currentEntries().push(entry);
   ui.editUid = entry.uid;
   logEvent(`Added ${entry.title} to ${ui.editMenu}`);
   toast(`${entry.title} added to ${ui.editMenu}`);
   commit();
 }
+
+const actionEntry = (id) => {
+  const a = CATALOG_BY_ID[id];
+  return { uid: uid(), title: a.title, cmd: a.cmd, action: '', iconPath: '', appId: id, icon: { kind: 'glyph', ref: a.glyph } };
+};
+// A ready menu of :fork actions, opened from one Quick settings entry.
+const quickMenu = () => [...['volumeUp', 'volumeDown', 'mute', 'nextOutput', 'tvOff', 'screenOff'].map(actionEntry), backEntry()];
 
 const backEntry = () => ({ uid: uid(), title: 'Back', cmd: ':back', action: '', iconPath: '', appId: 'back', icon: { kind: 'glyph', ref: 'back' } });
 
@@ -520,15 +534,6 @@ function styleCards() {
   }).join('');
 }
 
-function openStyles(open) {
-  const pop = $('#styles-pop');
-  const btn = $('#styles-btn');
-  open ??= pop.hidden;
-  if (open) $('#styles-grid').innerHTML = styleCards();
-  pop.hidden = !open;
-  btn.setAttribute('aria-expanded', String(open));
-  if (open) pop.querySelector('[aria-pressed="true"], .style-card')?.focus();
-}
 
 
 function applyLayout(id) {
@@ -563,7 +568,7 @@ function viewLook() {
     sec('Styles', `<div class="style-grid">${styleCards()}</div>
       <p class="hint">A style changes only how the TV looks. Your apps, hotkeys and behaviour stay.</p>`),
     sec('Layout', `<div class="cards">${layouts}</div>
-      <p class="hint" id="list-why">A layout card sets many values at once. You can change each value after. Flex Launcher has only one horizontal row, so a list needs its own launcher.</p>`),
+      <p class="hint" id="list-why">A layout card sets many values at once. You can change each value after. Flex Launcher draws one row and puts extra apps on more pages, so a grid or a list needs its own launcher.</p>`),
     sec('Glass plate', `${row('Draw a plate', sw('Glass plate', d.on, bindT('dock.on'), true), 'Drawn into the wallpaper')}
       ${d.on && !bgOk ? `<p class="note">The plate needs an image background. <button type="button" class="btn sm" data-use-wallpaper>Use the slideshow</button></p>` : ''}
       ${d.on ? `${row('Blur', slider('Blur', d.blur, 0, 80, 1, bindT('dock.blur'), 'px'))}
@@ -572,7 +577,7 @@ function viewLook() {
       ${row('Edge', slider('Edge line', d.border, 0, 60, 1, bindT('dock.border'), '%'))}
       ${row('Corners', slider('Plate corners', d.radius, 0, 120, 1, bindT('dock.radius'), 'px'))}
       ${row('Side padding', slider('Side padding', d.padX, 0, 160, 2, bindT('dock.padX'), 'px'))}
-      ${row('Top padding', slider('Top padding', d.padY, 0, 120, 2, bindT('dock.padY'), 'px'))}
+      ${row('Top padding', slider('Top padding', d.padY, -120, 120, 2, bindT('dock.padY'), 'px'), 'Below 0 the plate is thinner than the icons')}
       <p class="hint">One plate fits the widest menu. It lines up on a 1920x1080 screen.</p>` : ''}`),
     sec('Wallpaper effect', `${row('Effect', `<select aria-label="Wallpaper effect" ${bindT('wall.fx')} data-rerender>${Object.entries(WALL_FX).map(([k, v]) => `<option value="${k}" ${k === state.wall.fx ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>`, 'Drawn into the wallpaper')}
       ${state.wall.fx !== 'none' && !bgOk ? `<p class="note">Effects need an image background. <button type="button" class="btn sm" data-use-wallpaper>Use the slideshow</button></p>` : ''}
@@ -585,7 +590,7 @@ function viewLook() {
       ${row('Label on focus', sw('Label inside the selected icon', state.look.labelInSelected, bindT('look.labelInSelected')), 'Title only on the selected app')}
       ${row('Dim others', sw('Dim the other icons', state.look.dimOthers, bindT('look.dimOthers')), 'Needs Selected tile focus')}`),
     sec('Focus', `${segmented('Focus style', [['box', 'Highlight box'], ['icon', 'Selected tile'], ['both', 'Both']], state.focus, bindT('focus'), { full: true, rerender: true })}
-      <p class="hint">"Selected tile" exports an extra <span class="mono">_selected.png</span> for each icon and turns the box off.</p>
+      <p class="hint">"Selected tile" exports an extra <span class="mono">_selected.png</span> for each icon and turns the highlight box off.</p>
       ${state.focus !== 'box' ? `${row('Focus effect', `<select aria-label="Focus effect" ${bindT('look.focusFx')}>${Object.entries(FOCUS_FX).map(([k, v]) => `<option value="${k}" ${k === state.look.focusFx ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select>`, 'Drawn into the selected icon')}
       <p class="hint">Flex Launcher swaps the icon at once. It cannot animate the change.</p>` : ''}
       ${s.Highlight.Enabled ? `${row('Fill', colour('Highlight fill', s.Highlight.FillColor, bindS('Highlight', 'FillColor')))}
@@ -598,20 +603,38 @@ function viewLook() {
       ${row('Spacing', Number.isNaN(spacing) || !String(s.Layout.IconSpacing).endsWith('%') ? `<input type="text" value="${esc(s.Layout.IconSpacing)}" ${bindS('Layout', 'IconSpacing')}>` : slider('Spacing', spacing, 0, 15, 0.5, bindS('Layout', 'IconSpacing'), '%'), '% of screen width')}
       ${row('Height', slider('Vertical position', s.Layout.VCenter, 10, 90, 1, bindS('Layout', 'VCenter'), '%'), 'Row centre on screen')}`),
     sec('Titles', `${row('Show titles', sw('Show titles', s.Titles.Enabled, bindS('Titles', 'Enabled'), true))}
-      ${s.Titles.Enabled ? `${row('Font', fontSelect('Titles'))}
+      ${s.Titles.Enabled ? `${fontRow('Font', 'Titles')}
       ${row('Size', slider('Title size', s.Titles.FontSize, 12, 80, 1, bindS('Titles', 'FontSize'), 'px'))}
       ${row('Colour', colour('Title colour', s.Titles.Color, bindS('Titles', 'Color')))}
       ${row('Long titles', segmented('Long titles', [['Shrink', 'Shrink'], ['Truncate', 'Cut'], ['None', 'Overflow']], s.Titles.OversizeMode, bindS('Titles', 'OversizeMode')))}
       ${row('Shadow', sw('Title shadow', s.Titles.Shadows, bindS('Titles', 'Shadows')))}` : ''}`),
     sec('Clock', `${segmented('Clock', [['off', 'Off'], ['time', 'Time'], ['date', 'Time and date']], clock, 'data-clock', { full: true, rerender: true })}
       ${s.Clock.Enabled ? `<div style="height:8px"></div>${row('Side', segmented('Clock side', [['Left', 'Left'], ['Right', 'Right']], s.Clock.Alignment, bindS('Clock', 'Alignment')))}
-      ${row('Format', segmented('Time format', [['24hr', '24 h'], ['12hr', '12 h'], ['Auto', 'Auto']], s.Clock.TimeFormat, bindS('Clock', 'TimeFormat')))}
-      ${row('Font', fontSelect('Clock'))}
+      ${row('Time', segmented('Time format', [['24hr', '24 h'], ['12hr', '12 h'], ['Auto', 'Auto']], s.Clock.TimeFormat, bindS('Clock', 'TimeFormat')))}
+      ${s.Clock.ShowDate ? `${row('Date order', segmented('Date order', [['Little', 'Day first'], ['Big', 'Month first'], ['Auto', 'Auto']], s.Clock.DateFormat, bindS('Clock', 'DateFormat')))}
+      ${row('Weekday', sw('Show the weekday', s.Clock.IncludeWeekday, bindS('Clock', 'IncludeWeekday')), 'For example Thu')}` : ''}
+      ${row('Colour', colour('Clock colour', s.Clock.FontColor, bindS('Clock', 'FontColor')))}
+      ${row('Opacity', slider('Clock opacity', s.Clock.Opacity, 10, 100, 1, bindS('Clock', 'Opacity'), '%'))}
+      ${row('Shadow', sw('Clock shadow', s.Clock.Shadows, bindS('Clock', 'Shadows')), 'Easier to read on bright photos')}
+      ${row('Margin', slider('Clock margin', parseFloat(s.Clock.Margin) || 0, 0, 15, 0.5, bindS('Clock', 'Margin'), '%'), '% of screen height, from the corner')}
+      ${fontRow('Font', 'Clock')}
       ${row('Size', slider('Clock size', s.Clock.FontSize, 20, 140, 1, bindS('Clock', 'FontSize'), 'px'))}` : ''}`),
   ].join('');
 }
 
 // --- Wallpaper ---
+
+// Flex Launcher dims after a time with no input; it has no clock schedule.
+const DIM_PRESETS = {
+  off: { label: 'Off', Enabled: false },
+  gentle: { label: 'Gentle · 10 min, 50%', Enabled: true, IdleTime: 600, Intensity: 50 },
+  night: { label: 'Night · 5 min, 85%', Enabled: true, IdleTime: 300, Intensity: 85 },
+  dark: { label: 'Almost off · 2 min, 97%', Enabled: true, IdleTime: 120, Intensity: 97 },
+};
+function dimPreset() {
+  const sc = state.settings.Screensaver;
+  return Object.entries(DIM_PRESETS).find(([, d]) => (!d.Enabled ? !sc.Enabled : sc.Enabled && sc.IdleTime === d.IdleTime && sc.Intensity === d.Intensity))?.[0];
+}
 
 function viewWallpaper() {
   const bg = state.settings.Background;
@@ -634,7 +657,8 @@ function viewWallpaper() {
     sec('Dim the background', `${row('Overlay', sw('Overlay', bg.Overlay, bindS('Background', 'Overlay'), true), 'Makes icons and text easier to read')}
       ${bg.Overlay ? `${row('Strength', slider('Overlay strength', bg.OverlayOpacity, 0, 100, 1, bindS('Background', 'OverlayOpacity'), '%'))}
       ${row('Colour', colour('Overlay colour', bg.OverlayColor, bindS('Background', 'OverlayColor')))}` : ''}`),
-    sec('Screensaver', `${row('Dim when idle', sw('Screensaver', sc.Enabled, bindS('Screensaver', 'Enabled'), true))}
+    sec('Night dim', `<div class="chips">${Object.entries(DIM_PRESETS).map(([id, d]) => `<button type="button" class="chip" data-dim="${id}" aria-pressed="${dimPreset() === id}">${esc(d.label)}</button>`).join('')}</div>
+      ${row('Dim when idle', sw('Screensaver', sc.Enabled, bindS('Screensaver', 'Enabled'), true))}
       ${sc.Enabled ? `${row('After', slider('Idle time', sc.IdleTime, 30, 1800, 30, bindS('Screensaver', 'IdleTime'), 's'))}
       ${row('Darkness', slider('Darkness', sc.Intensity, 0, 100, 1, bindS('Screensaver', 'Intensity'), '%'))}
       ${row('Pause slideshow', sw('Pause slideshow', sc.PauseSlideshow, bindS('Screensaver', 'PauseSlideshow')))}
@@ -644,21 +668,98 @@ function viewWallpaper() {
 
 // --- Remote ---
 
+const LAUNCHER_ACTIONS = [
+  [':left', 'Move left'], [':right', 'Move right'], [':select', 'Open (OK)'], [':back', 'Back'], [':home', 'Home menu'],
+  [':quit', 'Quit to desktop'], [':shutdown', 'Shut down'], [':restart', 'Restart'], [':sleep', 'Sleep'],
+];
+// Movement and :select are for keys and buttons only; the docs forbid :select in menu entries.
+const GAMEPAD_CONTROLS = [
+  'ButtonA', 'ButtonB', 'ButtonX', 'ButtonY', 'ButtonStart', 'ButtonBack', 'ButtonGuide',
+  'ButtonDPadUp', 'ButtonDPadDown', 'ButtonDPadLeft', 'ButtonDPadRight', 'ButtonLeftShoulder', 'ButtonRightShoulder',
+  'ButtonLeftStick', 'ButtonRightStick', 'LTrigger', 'RTrigger',
+  'LStickX-', 'LStickX+', 'LStickY-', 'LStickY+', 'RStickX-', 'RStickX+', 'RStickY-', 'RStickY+',
+];
+const GAMEPAD_SETTINGS = ['Enabled', 'DeviceIndex', 'ControllerMappingsFile'];
+const GAMEPAD_DEFAULT = [
+  ['ButtonA', ':select'], ['ButtonB', ':back'], ['ButtonDPadLeft', ':left'], ['ButtonDPadRight', ':right'],
+  ['LStickX-', ':left'], ['LStickX+', ':right'], ['ButtonGuide', ':home'],
+];
+
+// Every command a key or button can run, grouped, so nobody has to type one.
+function actionChoices() {
+  const apps = new Map();
+  for (const e of Object.values(state.menus).flat()) if (e.cmd && !e.cmd.startsWith(':')) apps.set(e.cmd, e.title);
+  return [
+    ['Launcher', LAUNCHER_ACTIONS],
+    ['Menus', Object.keys(state.menus).map((m) => [`:submenu ${m}`, `Open ${m}`])],
+    ['Actions', Object.values(ACTIONS).map((a) => [a.cmd, a.title])],
+    ['Apps', [...apps].map(([cmd, title]) => [cmd, `Open ${title}`])],
+  ];
+}
+
+function actionSelect(label, cmd, bind) {
+  const groups = actionChoices();
+  const known = groups.some(([, opts]) => opts.some(([v]) => v === cmd));
+  return `<select aria-label="${esc(label)}" ${bind}>
+    ${cmd ? '' : '<option value="" selected>Choose an action</option>'}
+    ${groups.map(([g, opts]) => opts.length ? `<optgroup label="${g}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === cmd ? 'selected' : ''}>${esc(l)}</option>`).join('')}</optgroup>` : '').join('')}
+    <option value="__custom" ${cmd && !known ? 'selected' : ''}>Custom command</option></select>`;
+}
+const isKnownCmd = (cmd) => actionChoices().some(([, opts]) => opts.some(([v]) => v === cmd));
+
+// Start and quit commands are built from small steps joined by "&&".
+const CMD_STEPS = {
+  StartupCmd: [
+    ['tvOn', 'Turn the TV on', 'echo on 0 | cec-client -s -d 1'],
+    ['tvInput', 'Switch the TV to the HTPC', 'echo as | cec-client -s -d 1'],
+    ['volume', 'Set volume to 40%', 'wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.4'],
+  ],
+  QuitCmd: [
+    ['tvOff', 'Turn the TV off', 'echo standby 0 | cec-client -s -d 1'],
+  ],
+};
+function cmdSteps(cmd) {
+  const inner = (cmd || '').match(/^sh -c '(.*)'$/)?.[1] ?? cmd ?? '';
+  return inner.split(' && ').map((x) => x.trim()).filter(Boolean);
+}
+const joinSteps = (steps) => (!steps.length ? '' : steps.length === 1 && !/[|&]/.test(steps[0]) ? steps[0] : `sh -c '${steps.join(' && ')}'`);
+
 function viewKeys() {
   const g = state.settings.General;
+  const pad = state.gamepad;
+  const padSetting = (k) => pad.find((x) => x.input === k)?.cmd;
+  const padOn = padSetting('Enabled') === 'true';
+  const rows = pad.map((x, i) => [x, i]).filter(([x]) => !GAMEPAD_SETTINGS.includes(x.input));
+  const stepChips = (key) => CMD_STEPS[key].map(([id, label, step]) => {
+    const on = cmdSteps(g[key]).includes(step);
+    return `<button type="button" class="chip" data-step="${key}|${id}" aria-pressed="${on}">${esc(label)}</button>`;
+  }).join('');
   return [
-    sec('Hotkeys', `${state.hotkeys.map((h, i) => `<div class="hk"><kbd title="${esc(h.key)}">${esc(keyLabel(h.key))}</kbd>
-      <input class="field-input" aria-label="Command for ${esc(keyLabel(h.key))}" data-hk="${i}" value="${esc(h.cmd)}" spellcheck="false">
-      <button type="button" class="icon-btn" data-hk-del="${i}" aria-label="Remove hotkey ${esc(keyLabel(h.key))}">${svg(ICONS.trash, 16)}</button></div>`).join('') || '<p class="hint">No hotkeys.</p>'}
-      <button type="button" class="btn sm" id="hk-record">${svg(ICONS.plus, 14)}Record a key</button>
-      <p class="hint">Flex Launcher cannot close apps. Bind a window-manager key (for example F10 = close window) on the box.</p>`),
+    sec('Remote keys', `${state.hotkeys.map((h, i) => `<div class="hk"><kbd title="${esc(h.key)}">${esc(keyLabel(h.key))}</kbd>
+      ${actionSelect(`Action for ${keyLabel(h.key)}`, h.cmd, `data-hk-act="${i}"`)}
+      <button type="button" class="icon-btn" data-hk-del="${i}" aria-label="Remove key ${esc(keyLabel(h.key))}">${svg(ICONS.trash, 16)}</button>
+      ${(h.cmd && !isKnownCmd(h.cmd)) || ui.customHk === i ? `<input class="field-input hk-cmd" aria-label="Command for ${esc(keyLabel(h.key))}" data-hk="${i}" value="${esc(h.cmd)}" spellcheck="false">` : ''}</div>`).join('') || '<p class="hint">No keys yet.</p>'}
+      <button type="button" class="btn sm" id="hk-record">${svg(ICONS.plus, 14)}Add a key</button>
+      <p class="hint">Push the key on your remote or keyboard, then pick what it does. Arrows, Enter and Backspace are reserved by Flex Launcher.</p>`),
+    sec('Controller', `${row('Use a controller', `<input type="checkbox" role="switch" class="switch" aria-label="Use a controller" data-gp-on ${padOn ? 'checked' : ''}>`, 'Xbox, PlayStation and most USB pads')}
+      ${padOn ? `${rows.map(([x, i]) => `<div class="hk gp">
+        <select aria-label="Controller button" data-gp-in="${i}">${GAMEPAD_CONTROLS.map((c) => `<option ${c === x.input ? 'selected' : ''}>${c}</option>`).join('')}</select>
+        ${actionSelect(`Action for ${x.input}`, x.cmd, `data-gp-act="${i}"`)}
+        <button type="button" class="icon-btn" data-gp-del="${i}" aria-label="Remove ${esc(x.input)}">${svg(ICONS.trash, 16)}</button>
+        ${(x.cmd && !isKnownCmd(x.cmd)) || ui.customGp === i ? `<input class="field-input hk-cmd" aria-label="Command for ${esc(x.input)}" data-gp="${i}" value="${esc(x.cmd)}" spellcheck="false">` : ''}</div>`).join('')}
+      <div class="add-row"><button type="button" class="btn sm" id="gp-add">${svg(ICONS.plus, 14)}Add a button</button>
+      <button type="button" class="btn sm ghost" id="gp-default">Standard layout</button></div>` : ''}`),
+    sec('When the launcher starts', `<div class="chips">${stepChips('StartupCmd')}</div>
+      ${row('Command', `<input type="text" spellcheck="false" aria-label="Start command" value="${esc(g.StartupCmd || '')}" ${bindS('General', 'StartupCmd')}>`)}
+      <p class="hint">Runs once when Flex Launcher starts. TV control uses HDMI-CEC, so CEC must be on in the TV settings.</p>`),
+    sec('When the launcher quits', `<div class="chips">${stepChips('QuitCmd')}</div>
+      ${row('Command', `<input type="text" spellcheck="false" aria-label="Quit command" value="${esc(g.QuitCmd || '')}" ${bindS('General', 'QuitCmd')}>`)}`),
     sec('When an app starts', `${segmented('On launch', [['Blank', 'Blank launcher'], ['None', 'Keep drawing'], ['Quit', 'Quit launcher']], g.OnLaunch, bindS('General', 'OnLaunch'), { full: true })}
       <p class="hint">Quit saves memory, but when the app closes you are on the desktop.</p>`),
     sec('Navigation', `${row('Wrap around', sw('Wrap around', g.WrapEntries, bindS('General', 'WrapEntries')), 'Right on the last app goes to the first')}
       ${row('Reset on back', sw('Reset on back', g.ResetOnBack, bindS('General', 'ResetOnBack')), 'Submenus open on the first app')}
       ${row('Mouse select', sw('Mouse select', g.MouseSelect, bindS('General', 'MouseSelect')))}
       ${row('Block OS screensaver', sw('Block OS screensaver', g.InhibitOSScreensaver, bindS('General', 'InhibitOSScreensaver')))}`),
-    sec('Gamepad', `<label class="field"><span>Input=command, one per line</span><textarea class="field-input" id="gamepad" rows="6" spellcheck="false">${esc(state.gamepad.map((x) => `${x.input}=${x.cmd}`).join('\n'))}</textarea></label>`),
   ].join('');
 }
 
@@ -677,9 +778,8 @@ function viewSettings() {
         return `<div class="ctl"><span class="lbl">${k}${dot}${spec.hint ? `<small>${esc(spec.hint)}</small>` : ''}</span>${schemaControl(secName, k, spec)}</div>`;
       }).join('')}</div></details>`;
   }).join('');
-  return `<div class="search"><input class="field-input" type="search" id="settings-search" placeholder="Search settings" aria-label="Search settings" value="${esc(ui.filter)}"></div>
-    <div class="ctl stack"><span class="lbl">Flex Launcher folder on the box</span><input type="text" id="base-path" value="${esc(state.basePath)}" spellcheck="false"></div>
-    ${groups || '<p class="empty">No setting matches.</p>'}`;
+  return sec('All settings', `<div class="search"><input class="field-input" type="search" id="settings-search" placeholder="Search settings" aria-label="Search settings" value="${esc(ui.filter)}"></div>
+    ${groups || '<p class="empty">No setting matches.</p>'}<p class="hint">A dot marks a value that is not the default.</p>`);
 }
 
 // --- Checks ---
@@ -689,8 +789,7 @@ function viewChecks() {
   const order = { error: 0, warn: 1, info: 2 };
   checks.sort((a, b) => order[a.level] - order[b.level]);
   const mark = { error: '!', warn: '!', info: 'i' };
-  return `${sec('Test against', row('My box (21 Oct)', sw('Check commands against my box', state.target === 'box', 'id="target-box"'), 'Installed Flatpaks and commands'))}
-    ${sec(`${checks.length} result${checks.length === 1 ? '' : 's'}`, `<ul class="checks">${checks.map((c) => `<li class="${c.level}"><span class="ic" aria-label="${c.level}">${mark[c.level]}</span>
+  return `${sec(`${checks.length} result${checks.length === 1 ? '' : 's'}`, `<ul class="checks">${checks.map((c) => `<li class="${c.level}"><span class="ic" aria-label="${c.level}">${mark[c.level]}</span>
       <span><span class="where">${esc(c.where)}</span>${esc(c.text)}</span></li>`).join('')}</ul>`)}`;
 }
 
@@ -701,41 +800,40 @@ function viewExport() {
   const sel = state.focus !== 'box';
   return [
     sec('Download', `<div class="export-hero">
-      <button type="button" class="btn primary" id="zip-dl">${svg(ICONS.export, 16)}Download bundle (.zip)</button>
+      <button type="button" class="btn primary" id="zip-dl">${svg(ICONS.download, 16)}Download bundle (.zip)</button>
       <p class="hint">config.ini, ${icons} icons at ${state.settings.Layout.IconSize} px${sel ? ` plus ${icons} _selected icons` : ''}, wallpapers and fonts. Copy the folder to <span class="mono">${esc(state.basePath)}</span>.</p>
       <div class="export-row"><button type="button" class="btn sm" id="ini-dl">${svg(ICONS.file, 14)}config.ini only</button>
       <button type="button" class="btn sm" id="ini-copy">${svg(ICONS.copy, 14)}Copy</button>
-      <button type="button" class="btn sm" id="ini-import">${svg(ICONS.upload, 14)}Import…</button></div></div>`),
+      <button type="button" class="btn sm" id="ini-import">${svg(ICONS.upload, 14)}Import…</button></div></div>
+      <div class="ctl stack"><label class="lbl" for="preset">Start from a preset<small>Replaces your menus and settings</small></label><select id="preset">${state.preset ? '' : '<option selected>Imported config</option>'}${Object.entries(ALL_PRESETS).map(([k, p]) => `<option value="${k}" ${state.preset === k ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></div>
+      <div class="ctl stack"><span class="lbl">Install folder on the HTPC<small>An absolute path. Flex Launcher does not expand ~</small></span><input type="text" id="base-path" value="${esc(state.basePath)}" spellcheck="false"></div>`),
+    viewSettings(),
     sec('config.ini', `<pre class="ini" tabindex="0" aria-label="config.ini">${esc(configText(state))}</pre>`),
   ].join('');
 }
 
 // ---------- events ----------
 
-$('#rail').addEventListener('click', (e) => {
+$('#tabs').addEventListener('click', (e) => {
   const b = e.target.closest('[data-view]');
   if (b) go(b.dataset.view);
 });
-$('#health').addEventListener('click', () => go('checks'));
-$('#styles-btn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  openStyles();
+// WAI-ARIA tabs pattern with automatic activation: arrows, Home and End move and select.
+$('#tabs').addEventListener('keydown', (e) => {
+  const i = VIEWS.findIndex((v) => v.id === ui.view);
+  const n = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: VIEWS.length - 1 }[e.key];
+  if (n === undefined) return;
+  e.preventDefault();
+  go(VIEWS[(n + VIEWS.length) % VIEWS.length].id);
 });
-$('#styles-grid').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-style-preset]');
-  if (!b) return;
-  openStyles(false);
-  pickStyle(b.dataset.stylePreset);
-  $('#styles-btn').focus();
+$('#activity').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !$('#activity').open) return;
+  e.stopPropagation();
+  $('#activity').open = false;
+  $('#activity summary').focus();
 });
 document.addEventListener('click', (e) => {
-  if (!$('#styles-pop').hidden && !e.target.closest('#styles-pop')) openStyles(false);
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('#styles-pop').hidden) {
-    openStyles(false);
-    $('#styles-btn').focus();
-  }
+  if ($('#activity').open && !e.target.closest('#activity')) $('#activity').open = false;
 });
 $('#export-quick').addEventListener('click', () => go('export'));
 $('#theme').addEventListener('click', () => {
@@ -747,18 +845,6 @@ $('#theme').addEventListener('click', () => {
   try { localStorage.setItem(THEME_STORE, next); } catch { /* per-browser convenience only */ }
   renderChrome();
 });
-$('#preset').addEventListener('change', (e) => {
-  const key = e.target.value;
-  if (!PRESETS[key]) return;
-  if (!confirm(`Load "${PRESETS[key].label}"? This replaces your menus and settings.`)) return renderChrome();
-  state = { ...fromPreset(key), uploads: state.uploads };
-  ui.editMenu = state.settings.General.DefaultMenu;
-  ui.editUid = null;
-  stage.reset();
-  logEvent(`Preset: ${PRESETS[key].label}`);
-  commit();
-});
-
 $('#tv-head').addEventListener('click', (e) => {
   const b = e.target.closest('[data-goto]');
   if (!b) return;
@@ -783,8 +869,21 @@ $('#remote').addEventListener('click', (e) => {
 
 const panel = $('#panel');
 
+async function loadPreset(key) {
+  if (!ALL_PRESETS[key]) return;
+  const ok = await ask({ title: `Load "${ALL_PRESETS[key].label}"?`, body: 'This replaces your menus and settings. Your uploaded wallpapers and fonts stay.', ok: 'Load preset' });
+  if (!ok) return renderPanel();
+  state = { ...fromPreset(key), uploads: state.uploads, fonts: state.fonts };
+  ui.editMenu = state.settings.General.DefaultMenu;
+  ui.editUid = null;
+  stage.reset();
+  logEvent(`Preset: ${ALL_PRESETS[key].label}`);
+  commit();
+}
+
 panel.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'preset') return loadPreset(el.value);
   if (el.dataset.edit) {
     const entry = currentEntries().find((x) => x.uid === ui.editUid);
     entry[el.dataset.edit] = el.value;
@@ -811,9 +910,31 @@ panel.addEventListener('input', (e) => {
     state.hotkeys[Number(el.dataset.hk)].cmd = el.value;
     return commit({ panel: false });
   }
-  if (el.id === 'gamepad') {
-    state.gamepad = el.value.split('\n').map((l) => l.trim()).filter((l) => l.includes('=')).map((l) => ({ input: l.slice(0, l.indexOf('=')), cmd: l.slice(l.indexOf('=') + 1) }));
-    return commit({ panel: false });
+  if (el.dataset.hkAct !== undefined) {
+    const i = Number(el.dataset.hkAct);
+    ui.customHk = el.value === '__custom' ? i : null;
+    if (el.value !== '__custom') state.hotkeys[i].cmd = el.value;
+    else if (isKnownCmd(state.hotkeys[i].cmd)) state.hotkeys[i].cmd = '';
+    commit();
+    if (el.value === '__custom') panel.querySelector(`[data-hk="${i}"]`)?.focus();
+    return;
+  }
+  if (el.dataset.gpAct !== undefined || el.dataset.gpIn !== undefined || el.dataset.gp !== undefined) {
+    const i = Number(el.dataset.gpAct ?? el.dataset.gpIn ?? el.dataset.gp);
+    if (el.dataset.gpIn !== undefined) state.gamepad[i].input = el.value;
+    else if (el.dataset.gp !== undefined) state.gamepad[i].cmd = el.value;
+    else {
+      ui.customGp = el.value === '__custom' ? i : null;
+      state.gamepad[i].cmd = el.value === '__custom' ? '' : el.value;
+    }
+    return commit({ panel: el.dataset.gp === undefined });
+  }
+  if (el.hasAttribute('data-gp-on')) {
+    const on = state.gamepad.find((x) => x.input === 'Enabled');
+    if (on) on.cmd = String(el.checked);
+    else state.gamepad.unshift({ input: 'Enabled', cmd: String(el.checked) });
+    if (el.checked && !state.gamepad.some((x) => !GAMEPAD_SETTINGS.includes(x.input))) state.gamepad.push(...GAMEPAD_DEFAULT.map(([input, cmd]) => ({ input, cmd })));
+    return commit();
   }
   if (el.id === 'base-path') {
     const old = state.basePath.replace(/\/$/, '');
@@ -838,10 +959,6 @@ panel.addEventListener('input', (e) => {
   if (el.hasAttribute('data-icon-tab')) {
     ui.iconTab = el.value;
     return renderEntryList();
-  }
-  if (el.id === 'target-box') {
-    state.target = el.checked ? 'box' : 'generic';
-    return commit();
   }
   if (applyInput(el)) {
     // A hand-made change means the look no longer is the named style.
@@ -897,13 +1014,14 @@ panel.addEventListener('click', async (ev) => {
     entries.find((x) => x.uid === ui.editUid).icon = { kind: 'keep' };
     commit({ panel: false });
   } else if (t.id === 'menu-add') {
-    const name = prompt('Name of the new menu:', 'Utilities');
-    if (!name || state.menus[name] || /[[\]]/.test(name)) return;
+    const name = (await ask({ title: 'New menu', body: 'Open it from an entry with the command :submenu and this name.', ok: 'Add menu', input: 'Utilities' }))?.trim();
+    if (!name) return;
+    if (state.menus[name] || /[[\]]/.test(name)) return toast(state.menus[name] ? `A menu "${name}" exists already` : 'A menu name cannot contain [ or ]');
     state.menus[name] = [backEntry()];
     ui.editMenu = name;
     commit();
   } else if (t.id === 'menu-del') {
-    if (!confirm(`Delete menu "${ui.editMenu}"?`)) return;
+    if (!(await ask({ title: `Delete menu "${ui.editMenu}"?`, body: 'Its entries are removed too. Entries that open it stop working.', ok: 'Delete', danger: true }))) return;
     delete state.menus[ui.editMenu];
     ui.editMenu = state.settings.General.DefaultMenu;
     stage.reset();
@@ -923,6 +1041,23 @@ panel.addEventListener('click', async (ev) => {
     state.settings.Background.Mode = 'Image';
     state.settings.Background.Image = assetPath(state, 'bg', t.dataset.wall);
     commit();
+  } else if (t.dataset.fontUpload) {
+    const file = await pickFile('.ttf,.otf,font/ttf,font/otf');
+    if (!file) return;
+    if (!/\.(ttf|otf)$/i.test(file.name)) return toast('Flex Launcher needs a .ttf or .otf file');
+    if (file.size > 1.5e6) return toast('That font is over 1.5 MB. Use one weight, not a whole family file.');
+    const safe = file.name.replace(/[^\w.-]+/g, '-');
+    const data = await new Promise((resolve) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.readAsDataURL(file);
+    });
+    const label = safe.replace(/\.(ttf|otf)$/i, '').replace(/[-_]+/g, ' ');
+    state.fonts = [...state.fonts.filter((f) => f.file !== safe), { file: safe, label, data }];
+    registerFont(safe, label, data);
+    state.settings[t.dataset.fontUpload].Font = assetPath(state, 'fonts', safe);
+    toast(`${label} added. It goes into the export.`);
+    commit();
   } else if (t.id === 'bg-upload') {
     const file = await pickFile('image/*');
     if (!file) return;
@@ -935,6 +1070,28 @@ panel.addEventListener('click', async (ev) => {
       state.settings.Background.Image = assetPath(state, 'bg', safe);
     }
     toast(`${safe} added`);
+    commit();
+  } else if (t.dataset.step) {
+    const [key, id] = t.dataset.step.split('|');
+    const step = CMD_STEPS[key].find((x) => x[0] === id)[2];
+    const steps = cmdSteps(state.settings.General[key]);
+    const next = steps.includes(step) ? steps.filter((x) => x !== step) : [...steps, step];
+    state.settings.General[key] = joinSteps(next);
+    commit();
+  } else if (t.dataset.dim) {
+    const { label, ...d } = DIM_PRESETS[t.dataset.dim];
+    Object.assign(state.settings.Screensaver, d, { PauseSlideshow: true });
+    logEvent(`Night dim: ${label}`);
+    commit();
+  } else if (t.dataset.gpDel !== undefined) {
+    state.gamepad.splice(Number(t.dataset.gpDel), 1);
+    commit();
+  } else if (t.id === 'gp-add') {
+    const used = new Set(state.gamepad.map((x) => x.input));
+    state.gamepad.push({ input: GAMEPAD_CONTROLS.find((c) => !used.has(c)) || 'ButtonX', cmd: '' });
+    commit();
+  } else if (t.id === 'gp-default') {
+    state.gamepad = [...state.gamepad.filter((x) => GAMEPAD_SETTINGS.includes(x.input)), ...GAMEPAD_DEFAULT.map(([input, cmd]) => ({ input, cmd }))];
     commit();
   } else if (t.dataset.hkDel !== undefined) {
     state.hotkeys.splice(Number(t.dataset.hkDel), 1);
@@ -950,7 +1107,7 @@ panel.addEventListener('click', async (ev) => {
       state.hotkeys.push({ key, cmd: '' });
       logEvent(`Hotkey ${keyLabel(key)} (${key}) added`);
       commit();
-      panel.querySelector(`[data-hk="${state.hotkeys.length - 1}"]`)?.focus();
+      panel.querySelector(`[data-hk-act="${state.hotkeys.length - 1}"]`)?.focus();
     };
     window.addEventListener('keydown', onKey, true);
   } else if (t.id === 'ini-copy') {
@@ -1036,6 +1193,56 @@ $('#catalog-body').addEventListener('click', (e) => {
   addEntry(b.dataset.add);
 });
 
+// ---------- confirm dialog ----------
+// Promise-based stand-in for confirm() and prompt(), styled like the app and
+// keyboard friendly: Enter confirms, Esc cancels, focus returns to the opener.
+
+function ask({ title, body = '', ok = 'OK', danger = false, input = null }) {
+  const d = $('#ask');
+  const field = $('#ask-input');
+  const opener = document.activeElement;
+  $('#ask-title').textContent = title;
+  $('#ask-body').textContent = body;
+  $('#ask-ok').textContent = ok;
+  $('#ask-ok').classList.toggle('danger', danger);
+  field.hidden = input === null;
+  field.value = input ?? '';
+  d.returnValue = '';
+  d.showModal();
+  (input === null ? (danger ? $('#ask-cancel') : $('#ask-ok')) : field).focus();
+  if (input !== null) field.select();
+  return new Promise((resolve) => {
+    d.addEventListener('close', () => {
+      opener?.focus?.();
+      const yes = d.returnValue === 'ok';
+      resolve(input === null ? yes : yes ? field.value : null);
+    }, { once: true });
+  });
+}
+
+// A type="button" Cancel, so Enter in the text field submits OK, not Cancel.
+$('#ask-cancel').addEventListener('click', () => $('#ask').close('cancel'));
+
+$('#reset-all').addEventListener('click', async () => {
+  const ok = await ask({
+    title: 'Reset Flex Studio?',
+    body: 'This deletes your menus, look, uploaded wallpapers and fonts in this browser, and loads the Starter preset. Exported files are not touched.',
+    ok: 'Reset everything',
+    danger: true,
+  });
+  if (!ok) return;
+  try { localStorage.removeItem(STORE); } catch { /* storage blocked: the reset still applies to this page */ }
+  state = fromPreset('starter');
+  ui.editMenu = state.settings.General.DefaultMenu;
+  ui.editUid = null;
+  ui.view = 'apps';
+  composites.key = '';
+  stage.reset();
+  logEvent('Reset to the Starter preset');
+  toast('Reset to the Starter preset');
+  commit();
+});
+
 // ---------- boot ----------
 
 try {
@@ -1080,5 +1287,5 @@ stage.reset();
 scheduleComposites();
 renderChrome();
 renderPanel();
-logEvent(`Loaded ${PRESETS[state.preset]?.label || 'saved config'}`);
+logEvent(`Loaded ${ALL_PRESETS[state.preset]?.label || 'saved config'}`);
 document.fonts?.ready.then(() => stage.render());

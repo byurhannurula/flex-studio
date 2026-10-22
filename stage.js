@@ -5,18 +5,51 @@ import { iconSvg, svgUrl } from './icons.js';
 import { CATALOG_BY_ID } from './catalog.js';
 import { W, H, dimPx, rowGeometry } from './dock.js';
 
+// Fonts that ship in assets/fonts and go into the export. All are free to share:
+// SIL OFL, Apache 2.0 or the Bitstream Vera licence (DejaVu).
 export const FONT_FILES = {
-  'Inter-Regular.ttf': 'FS Inter',
-  'NotoSans-Regular.ttf': 'FS Noto Sans',
-  'OpenSans-Regular.ttf': 'FS Open Sans',
-  'Roboto-Regular.ttf': 'FS Roboto',
-  'SourceSansPro-Regular.ttf': 'FS Source Sans Pro',
+  'Inter-Regular.ttf': { label: 'Inter', family: 'FS Inter' },
+  'Inter-Medium.ttf': { label: 'Inter Medium', family: 'FS Inter Medium' },
+  'Inter-SemiBold.ttf': { label: 'Inter SemiBold', family: 'FS Inter SemiBold' },
+  'Inter-Bold.ttf': { label: 'Inter Bold', family: 'FS Inter Bold' },
+  'Roboto-Regular.ttf': { label: 'Roboto', family: 'FS Roboto' },
+  'OpenSans-Regular.ttf': { label: 'Open Sans', family: 'FS Open Sans' },
+  'NotoSans-Regular.ttf': { label: 'Noto Sans', family: 'FS Noto Sans' },
+  'SourceSansPro-Regular.ttf': { label: 'Source Sans Pro', family: 'FS Source Sans Pro' },
+  'DejaVuSans.ttf': { label: 'DejaVu Sans', family: 'FS DejaVu Sans' },
+  'DejaVuSansCondensed.ttf': { label: 'DejaVu Condensed', family: 'FS DejaVu Condensed' },
+  'PlayfairDisplay-Regular.ttf': { label: 'Playfair Display', family: 'FS Playfair Display' },
+  // Static instances from Google Fonts (SIL OFL). Static, not variable: SDL_ttf
+  // on the HTPC would draw a variable font at its default axis only.
+  'Manrope-SemiBold.ttf': { label: 'Manrope', family: 'FS Manrope' },
+  'Geist-Medium.ttf': { label: 'Geist', family: 'FS Geist' },
+  'Figtree-Medium.ttf': { label: 'Figtree', family: 'FS Figtree' },
+  'Outfit-Medium.ttf': { label: 'Outfit', family: 'FS Outfit' },
+  'PlusJakartaSans-SemiBold.ttf': { label: 'Plus Jakarta Sans', family: 'FS Plus Jakarta Sans' },
+  'SpaceGrotesk-Medium.ttf': { label: 'Space Grotesk', family: 'FS Space Grotesk' },
+  'Poppins-Medium.ttf': { label: 'Poppins', family: 'FS Poppins' },
+  'Newsreader-Medium.ttf': { label: 'Newsreader', family: 'FS Newsreader' },
 };
+
+// Registered here, not in CSS, so a new font needs only one line above.
+// The browser fetches each file the first time text uses it.
+for (const [file, f] of Object.entries(FONT_FILES)) {
+  if (f.family !== 'FS Inter') document.fonts.add(new FontFace(f.family, `url(assets/fonts/${file})`));
+}
+
+/** Add a font the user uploaded (a data URL) to the list and the page. */
+export function registerFont(file, label, data) {
+  if (FONT_FILES[file]) return FONT_FILES[file];
+  const family = `FS Own ${file}`;
+  FONT_FILES[file] = { label, family, own: true };
+  document.fonts.add(new FontFace(family, `url(${data})`));
+  return FONT_FILES[file];
+}
 
 export function fontFamily(path) {
   const file = (path || '').split('/').pop();
   // Single quotes: the value goes inside a double-quoted style attribute.
-  return `'${FONT_FILES[file] || 'FS Open Sans'}', sans-serif`;
+  return `'${FONT_FILES[file]?.family || 'FS Open Sans'}', sans-serif`;
 }
 
 const rgba = (hex, pct) => {
@@ -149,7 +182,7 @@ export class Stage {
       if (e.key === 'Home') {
         this.sim.screen = 'launcher';
         this.sim.stack = [st.settings.General.DefaultMenu];
-        this.log('Home: launcher started again (needs a desktop shortcut on the box)');
+        this.log('Home: launcher started again (needs a desktop shortcut on the HTPC)');
         this.render();
       } else {
         this.log(`${e.key} on the desktop does nothing`);
@@ -226,7 +259,9 @@ export class Stage {
       this.log('Home menu');
     } else if (c === ':quit') {
       this.sim.screen = 'desktop';
-      this.log('Flex Launcher quits: you are on the Xfce desktop');
+      this.log('Flex Launcher quits: you are on the desktop');
+    } else if (c.startsWith(':fork ')) {
+      return this.log(`Runs in the background, launcher stays: ${c.slice(6)}`);
     } else if (c === ':left' || c === ':right') {
       return this.move(c === ':left' ? -1 : 1);
     } else if (c === ':shutdown' || c === ':restart' || c === ':sleep') {
@@ -353,7 +388,10 @@ export class Stage {
     const wd = c.IncludeWeekday ? `${now.toLocaleDateString('en-GB', { weekday: 'short' })} ` : '';
     const d = String(now.getDate()).padStart(2, '0');
     const m = String(now.getMonth() + 1).padStart(2, '0');
-    const date = c.DateFormat === 'Big' ? `${wd}${now.getFullYear()}-${m}-${d}` : `${wd}${d}/${m}/${now.getFullYear()}`;
+    // Docs: Little = day before month, Big = month before day, Auto = system locale.
+    // Auto follows this browser's locale here; on the HTPC it follows the system locale.
+    const monthFirst = c.DateFormat === 'Big' || (c.DateFormat === 'Auto' && new Date(2000, 11, 31).toLocaleDateString().startsWith('12'));
+    const date = monthFirst ? `${wd}${m}/${d}/${now.getFullYear()}` : `${wd}${d}/${m}/${now.getFullYear()}`;
     el.querySelector('.t').textContent = time;
     const de = el.querySelector('.d');
     if (de) de.textContent = date;
@@ -453,10 +491,10 @@ export class Stage {
         <p>${esc(appInfo?.note || 'Simulated app window.')}</p>
         <p class="muted">${behind} Esc: the app closes itself. F10: window manager closes it.</p></div>`;
     } else if (scr === 'desktop') {
-      this.appScreen.innerHTML = `<div class="xfce-panel"><span>Applications</span><span>Places</span><span class="grow"></span><span>bbn</span></div>
+      this.appScreen.innerHTML = `<div class="xfce-panel"><span>Applications</span><span>Places</span><span class="grow"></span><span>user</span></div>
         <div class="desk-icons"><span>Home</span><span>File System</span><span>Trash</span></div>
-        <div class="app-card warn"><h2>Xfce desktop</h2><p>Flex Launcher has quit. On the box you now need the mini keyboard and mouse, or SSH.</p>
-        <p class="muted">Press Home to start the launcher again. That needs a desktop shortcut on the box.</p></div>`;
+        <div class="app-card warn"><h2>Desktop</h2><p>Flex Launcher has quit. On the HTPC you now need a keyboard and mouse, or SSH, to start it again.</p>
+        <p class="muted">Press Home to start the launcher again. That needs a desktop shortcut on the HTPC.</p></div>`;
     } else if (scr === 'power') {
       const words = { shutdown: 'Shutting down', restart: 'Restarting', sleep: 'Sleep' };
       this.appScreen.innerHTML = `<div class="app-card"><h2>${words[this.sim.power] || 'Power'}</h2><p class="muted">Simulation only. Press any key to come back.</p></div>`;

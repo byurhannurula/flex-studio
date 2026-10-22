@@ -4,6 +4,27 @@
 
 const chrome = (url) => `flatpak run com.google.Chrome --start-fullscreen --app=${url}`;
 
+// Actions run with :fork, so the launcher stays on screen. Each command uses
+// common tools: wpctl and pactl (PipeWire), cec-client (cec-utils) and xset
+// (x11-xserver-utils). Install those packages on the HTPC first. No ";" is allowed, because it separates fields in an
+// Entry line, so steps are joined with "&&".
+const fork = (cmd) => `:fork ${cmd}`;
+const cec = (msg) => fork(`sh -c 'echo ${msg} | cec-client -s -d 1'`);
+const SINK = '@DEFAULT_AUDIO_SINK@';
+export const ACTIONS = {
+  volumeUp: { title: 'Volume up', glyph: 'volumeUp', cmd: fork(`wpctl set-volume -l 1.0 ${SINK} 5%+`) },
+  volumeDown: { title: 'Volume down', glyph: 'volumeDown', cmd: fork(`wpctl set-volume ${SINK} 5%-`) },
+  mute: { title: 'Mute', glyph: 'mute', cmd: fork(`wpctl set-mute ${SINK} toggle`) },
+  nextOutput: {
+    title: 'Next audio output', glyph: 'speaker', note: 'Moves sound to the next output, for example TV to soundbar',
+    cmd: fork(`sh -c 'c=$(pactl get-default-sink) && n=$(pactl list short sinks | cut -f2 | grep -vx "$c" | head -n1) && pactl set-default-sink "$n"'`),
+  },
+  tvOff: { title: 'TV off', glyph: 'screenOff', cmd: cec('standby 0'), note: 'HDMI-CEC standby; the TV must allow CEC' },
+  tvOn: { title: 'TV on', glyph: 'tvMinimal', cmd: cec('on 0') },
+  tvInput: { title: 'Switch TV to HTPC', glyph: 'cast', cmd: cec('as'), note: 'Makes the HTPC the active TV input' },
+  screenOff: { title: 'Screen off', glyph: 'night', cmd: fork('xset dpms force off'), note: 'Any key wakes the screen' },
+};
+
 // glyph: a key in GLYPHS (generic) — used when no brand glyph exists.
 export const CATALOG = [
   { id: 'kodi', title: 'Kodi', brand: 'kodi', cmd: 'flatpak run tv.kodi.Kodi', group: 'Media' },
@@ -34,6 +55,40 @@ export const CATALOG = [
   { id: 'airplay', title: 'AirPlay', brand: 'airplayvideo', cmd: 'uxplay -n HTPC -fs', group: 'Tools', note: 'UxPlay: mirror an iPhone or Mac' },
   { id: 'firefox', title: 'Firefox', brand: 'firefoxbrowser', cmd: 'firefox-esr', group: 'Tools' },
   { id: 'chrome', title: 'Chrome', brand: 'googlechrome', cmd: 'flatpak run com.google.Chrome --start-fullscreen', group: 'Tools' },
+  { id: 'tubi', title: 'Tubi', brand: 'tubi', cmd: chrome('https://tubitv.com'), group: 'Streaming' },
+  { id: 'nebula', title: 'Nebula', brand: 'nebula', cmd: chrome('https://nebula.tv'), group: 'Streaming' },
+  { id: 'vimeo', title: 'Vimeo', brand: 'vimeo', cmd: chrome('https://vimeo.com'), group: 'Streaming' },
+  { id: 'kick', title: 'Kick', brand: 'kick', cmd: chrome('https://kick.com'), group: 'Streaming' },
+  { id: 'emby', title: 'Emby', brand: 'emby', cmd: chrome('http://localhost:8096'), group: 'Media', note: 'Change the address to your Emby server' },
+  { id: 'youtubemusic', title: 'YouTube Music', brand: 'youtubemusic', cmd: chrome('https://music.youtube.com'), group: 'Music' },
+  { id: 'deezer', title: 'Deezer', brand: 'deezer', cmd: chrome('https://www.deezer.com'), group: 'Music' },
+  { id: 'pocketcasts', title: 'Pocket Casts', brand: 'pocketcasts', cmd: chrome('https://play.pocketcasts.com'), group: 'Music' },
+  { id: 'audible', title: 'Audible', brand: 'audible', cmd: chrome('https://www.audible.com'), group: 'Music' },
+  { id: 'heroic', title: 'Heroic', brand: 'heroicgameslauncher', cmd: 'flatpak run com.heroicgameslauncher.hgl', group: 'Games', note: 'Epic and GOG games' },
+  { id: 'lutris', title: 'Lutris', brand: 'lutris', cmd: 'flatpak run net.lutris.Lutris', group: 'Games' },
+  { id: 'discord', title: 'Discord', brand: 'discord', cmd: 'flatpak run com.discordapp.Discord', group: 'Tools' },
+  { id: 'homeassistant', title: 'Home Assistant', brand: 'homeassistant', cmd: chrome('http://homeassistant.local:8123'), group: 'Tools' },
+  { id: 'immich', title: 'Photos', brand: 'immich', cmd: chrome('http://immich.local:2283'), group: 'Tools', note: 'Change the address to your Immich server' },
+  // Less-known apps, all on Flathub.
+  { id: 'feishin', title: 'Feishin', glyph: 'music2', cmd: 'flatpak run org.jeffvli.feishin', group: 'Music', note: 'Navidrome and Jellyfin music client' },
+  { id: 'supersonic', title: 'Supersonic', glyph: 'headphones', cmd: 'flatpak run io.github.dweymouth.supersonic', group: 'Music', note: 'Navidrome and Subsonic client' },
+  { id: 'sublimemusic', title: 'Sublime Music', glyph: 'music', cmd: 'flatpak run app.sublimemusic.SublimeMusic', group: 'Music', note: 'Subsonic and Navidrome client' },
+  { id: 'spotube', title: 'Spotube', glyph: 'music2', cmd: 'flatpak run com.github.KRTirtho.Spotube', group: 'Music', note: 'Spotify client without ads' },
+  { id: 'plexamp', title: 'Plexamp', glyph: 'headphones', cmd: 'flatpak run com.plexamp.Plexamp', group: 'Music' },
+  { id: 'strawberry', title: 'Strawberry', glyph: 'music', cmd: 'flatpak run org.strawberrymusicplayer.strawberry', group: 'Music', note: 'Local music library player' },
+  { id: 'shortwave', title: 'Radio', glyph: 'radio', cmd: 'flatpak run de.haeckerfelix.Shortwave', group: 'Music', note: 'Shortwave: internet radio stations' },
+  { id: 'kasts', title: 'Podcasts', glyph: 'podcast', cmd: 'flatpak run org.kde.kasts', group: 'Music', note: 'Kasts: podcast player' },
+  { id: 'freetube', title: 'FreeTube', brand: 'freetube', cmd: 'flatpak run io.freetubeapp.FreeTube', group: 'Streaming', note: 'YouTube without ads or an account' },
+  { id: 'grayjay', title: 'Grayjay', glyph: 'video', cmd: 'flatpak run app.grayjay.Grayjay', group: 'Streaming', note: 'YouTube, PeerTube and more in one app' },
+  { id: 'delfin', title: 'Delfin', glyph: 'film', cmd: 'flatpak run cafe.avery.Delfin', group: 'Media', note: 'Light Jellyfin client' },
+  { id: 'celluloid', title: 'Celluloid', glyph: 'monitorPlay', cmd: 'flatpak run io.github.celluloid_player.Celluloid', group: 'Media', note: 'Simple mpv video player' },
+  { id: 'steamlink', title: 'Steam Link', glyph: 'cast', cmd: 'flatpak run com.valvesoftware.SteamLink', group: 'Games', note: 'Streams games from a PC with Steam' },
+  { id: 'cartridges', title: 'Cartridges', glyph: 'joystick', cmd: 'flatpak run page.kramo.Cartridges', group: 'Games', note: 'One library for Steam, Heroic, Lutris and more' },
+  { id: 'dolphin', title: 'Dolphin', glyph: 'gamepad', cmd: 'flatpak run org.DolphinEmu.dolphin-emu', group: 'Games', note: 'GameCube and Wii emulator' },
+  { id: 'ppsspp', title: 'PPSSPP', glyph: 'gamepad', cmd: 'flatpak run org.ppsspp.PPSSPP', group: 'Games', note: 'PSP emulator' },
+  ...Object.entries(ACTIONS).map(([id, a]) => ({ id, ...a, group: 'Actions' })),
+  { id: 'quick', title: 'Quick settings', glyph: 'sliders', cmd: ':submenu Quick settings', group: 'Launcher' },
+  { id: 'home', title: 'Home', glyph: 'home', cmd: ':home', group: 'Launcher', note: 'Goes to the default menu' },
   { id: 'system', title: 'System', glyph: 'settings', cmd: ':submenu System', group: 'Launcher' },
   { id: 'back', title: 'Back', glyph: 'back', cmd: ':back', group: 'Launcher' },
   { id: 'desktop', title: 'Desktop', glyph: 'desktop', cmd: ':quit', group: 'Launcher', note: 'Quits the launcher on purpose; the Home key starts it again' },

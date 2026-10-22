@@ -1,8 +1,4 @@
 @font-face { font-family: 'FS Inter'; src: url(assets/fonts/Inter-Regular.ttf); font-display: swap; }
-@font-face { font-family: 'FS Noto Sans'; src: url(assets/fonts/NotoSans-Regular.ttf); font-display: swap; }
-@font-face { font-family: 'FS Open Sans'; src: url(assets/fonts/OpenSans-Regular.ttf); font-display: swap; }
-@font-face { font-family: 'FS Roboto'; src: url(assets/fonts/Roboto-Regular.ttf); font-display: swap; }
-@font-face { font-family: 'FS Source Sans Pro'; src: url(assets/fonts/SourceSansPro-Regular.ttf); font-display: swap; }
 
 :root {
   --bg: #f3f4f6;
@@ -96,51 +92,38 @@ kbd {
 .brand span { display: grid; line-height: 1.15; color: var(--text); white-space: nowrap; }
 .brand strong { font-size: 14px; }
 .brand small { font-size: 11px; color: var(--muted); }
-.preset select {
-  height: 32px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised);
-  padding: 0 28px 0 10px; font-weight: 500; appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-  background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px; background-size: 5px 5px; background-repeat: no-repeat;
-}
-.health {
-  display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 999px;
-  border: 1px solid var(--line); background: var(--sunken); max-width: 420px; min-width: 0;
-}
-.health .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
-.health.err .dot { background: var(--err); }
-.health.warn .dot { background: var(--warn); }
-.health strong { white-space: nowrap; }
-.health span:last-child { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sim-note { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
 /* ---------- shell ---------- */
 .shell {
-  flex: 1; min-height: 0; display: grid; grid-template-columns: 76px minmax(0, 1fr) 380px;
+  flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 420px;
 }
-.rail {
-  display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; border-right: 1px solid var(--line); background: var(--panel);
+.tabs {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; padding: 8px 8px 0;
+  border-bottom: 1px solid var(--line); background: var(--panel);
 }
-.rail button {
-  display: grid; justify-items: center; gap: 3px; padding: 8px 2px; border: 0; border-radius: 10px; background: none;
-  color: var(--muted); font-size: 11px; position: relative;
+.tabs button {
+  display: grid; justify-items: center; gap: 2px; padding: 7px 2px 8px; border: 0; border-radius: 8px 8px 0 0; background: none;
+  color: var(--muted); font-size: 11px; position: relative; min-width: 0; box-shadow: inset 0 -2px 0 transparent;
 }
-.rail button:hover { background: var(--sunken); color: var(--text); }
-.rail button[aria-current='page'] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.rail .count {
-  position: absolute; top: 4px; right: 10px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+.tabs button span:not(.count) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabs button:hover { background: var(--sunken); color: var(--text); }
+.tabs button[aria-selected='true'] { color: var(--accent); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tabs .count {
+  position: absolute; top: 3px; right: calc(50% - 20px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
   background: var(--err); color: #fff; font-size: 10px; line-height: 16px; font-weight: 600;
 }
-.rail .count.warn { background: var(--warn); }
-.rail .spacer { flex: 1; }
+.tabs .count.warn { background: var(--warn); }
 
 .stage-area {
   padding: 14px 20px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-width: 0;
-  /* Fit the TV to the window height, so the remote and Activity stay on screen.
-     250px is the app bar, TV head, remote, Activity, gaps and padding. */
-  --tv-w: min(100%, calc((100dvh - 250px) * 16 / 9));
+  /* Fit the TV to the window height, so the remote stays on screen.
+     185px is the app bar, TV head, remote, gaps and padding. */
+  --tv-w: min(100%, calc((100dvh - 185px) * 16 / 9));
 }
-.stage-area > .tv-head, .stage-area > .tv, .stage-area > .activity { width: var(--tv-w); align-self: center; box-sizing: border-box; }
-.tv-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.stage-area > .tv-bar, .stage-area > .tv { width: var(--tv-w); align-self: center; box-sizing: border-box; }
+.tv-bar { display: flex; align-items: center; gap: 10px; }
+.tv-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1; min-width: 0; }
 .crumbs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .crumbs .label { color: var(--muted); font-size: 12px; margin-right: 4px; }
 .chip {
@@ -176,9 +159,16 @@ kbd {
 .remote .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
 .remote .more { background: none; color: var(--muted); }
 
-.activity { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
-.activity summary { padding: 8px 12px; cursor: pointer; font-weight: 500; color: var(--muted); }
-.activity ol { list-style: none; margin: 0; padding: 0 12px 10px; font: 11.5px/1.7 var(--mono); max-height: 180px; overflow-y: auto; }
+.activity { position: relative; }
+.activity summary { display: inline-flex; align-items: center; list-style: none; cursor: pointer; color: var(--muted); }
+.activity summary::-webkit-details-marker { display: none; }
+.activity[open] summary { color: var(--text); border-color: var(--line-strong); }
+.activity ol {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; width: min(380px, 80vw); box-sizing: border-box;
+  list-style: none; margin: 0; padding: 8px 12px; font: 11.5px/1.7 var(--mono); max-height: 260px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.activity ol:empty::before { content: 'Nothing yet. Use the remote to see events here.'; color: var(--muted); font-family: 'FS Inter', system-ui, sans-serif; }
 .activity li:first-child { color: var(--text); }
 .activity li { color: var(--muted); }
 
@@ -190,19 +180,14 @@ kbd {
 
 @media (max-width: 1180px) {
   html, body { height: auto; }
-  .shell { grid-template-columns: 76px minmax(0, 1fr); align-items: start; }
-  .rail { position: sticky; top: 0; height: 100vh; }
+  .shell { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .tabs { position: sticky; top: 0; z-index: 2; }
   .stage-area { overflow: visible; --tv-w: 100%; }
-  .panel { grid-column: 2; border-left: 0; border-top: 1px solid var(--line); }
+  .panel { grid-column: 1; border-left: 0; border-top: 1px solid var(--line); }
   .panel-body { overflow: visible; }
 }
 @media (max-width: 720px) {
   .appbar { flex-wrap: wrap; }
-  .sim-note { display: none; }
-  .shell { grid-template-columns: 1fr; }
-  .rail { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); height: auto; z-index: 2; }
-  .rail .spacer { display: none; }
-  .panel { grid-column: 1; }
   .stage-area { padding: 12px 16px; }
 }
 
@@ -223,12 +208,12 @@ kbd {
 .ctl output { font: 12px var(--mono); color: var(--muted); min-width: 46px; text-align: right; }
 .ctl .changed { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; margin-left: 5px; vertical-align: middle; }
 
-.input, .ctl input[type='text'], .ctl input[type='number'], .ctl select, .ctl textarea, .field-input {
+.input, .ctl input[type='text'], .ctl input[type='number'], .ctl select, .ctl textarea, .hk select, .field-input {
   width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raised);
   transition: border-color 0.12s, box-shadow 0.12s;
 }
 .ctl textarea, textarea.field-input { height: auto; min-height: 64px; padding: 7px 10px; font: 12px/1.5 var(--mono); resize: vertical; }
-.ctl input:focus, .ctl select:focus, .ctl textarea:focus, .field-input:focus {
+.ctl input:focus, .ctl select:focus, .ctl textarea:focus, .hk select:focus, .field-input:focus {
   outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .ctl input[type='number'] { width: 90px; }
@@ -238,6 +223,18 @@ input[type='range'] { flex: 1; min-width: 60px; accent-color: var(--accent); hei
 /* segmented: real radios, so arrow keys work */
 /* position: relative keeps the hidden radios inside the panel scroller; without it
    they escape to the page and add empty scroll below the app. */
+/* font picker: each name in its own font */
+.font-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; position: relative; }
+.font-pick input { position: absolute; opacity: 0; pointer-events: none; }
+.font-pick label {
+  display: block; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--sunken);
+  font-size: 15px; line-height: 1.2; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.font-pick label:hover { border-color: var(--line-strong); }
+.font-pick input:checked + label { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); background: var(--raised); }
+.font-pick input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ctl.stack .font-pick { margin-top: 2px; }
+
 .segmented { position: relative; display: inline-flex; padding: 2px; border-radius: 9px; background: var(--sunken); gap: 2px; max-width: 100%; flex-wrap: wrap; }
 .segmented input { position: absolute; opacity: 0; pointer-events: none; }
 .segmented label {
@@ -389,7 +386,7 @@ details.group .body { padding: 0 0 10px; display: grid; gap: 4px; }
 
 .export-hero { display: grid; gap: 8px; }
 .export-hero .btn { justify-content: center; height: 40px; }
-.export-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.export-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 .export-row .btn { flex: 1; justify-content: center; }
 pre.ini {
   font: 11.5px/1.5 var(--mono); background: var(--sunken); padding: 12px; border-radius: 10px; overflow: auto; white-space: pre; margin: 0; max-height: 52vh;
@@ -397,6 +394,9 @@ pre.ini {
 
 .hk { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; margin-bottom: 6px; }
 .hk kbd { min-width: 40px; text-align: center; }
+.hk .hk-cmd { grid-column: 1 / -1; font: 12px var(--mono); }
+.hk.gp { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) auto; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 
 .toast {
   position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
@@ -418,13 +418,6 @@ pre.ini {
 .boot-error code { font: 12px var(--mono); background: rgba(0, 0, 0, 0.25); padding: 2px 6px; border-radius: 4px; word-break: break-all; }
 
 /* ---------- styles ---------- */
-.styles-anchor { position: relative; }
-.popover {
-  position: absolute; top: calc(100% + 8px); left: 0; z-index: 20; width: min(620px, calc(100vw - 32px));
-  background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lg); padding: 14px;
-}
-.pop-head { margin: 0 0 10px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
-.pop-head span { color: var(--muted); font-size: 12px; }
 .style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 .style-card {
   padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); overflow: hidden; text-align: left;
@@ -439,9 +432,6 @@ pre.ini {
 .style-card .nm { display: block; padding: 7px 9px 8px; font-size: 12.5px; font-weight: 600; }
 .style-card .nm small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); margin-top: 1px; }
 .panel .style-grid { grid-template-columns: repeat(2, 1fr); }
-@media (max-width: 720px) {
-  .popover { position: fixed; left: 16px; right: 16px; top: 120px; width: auto; max-height: 70vh; overflow-y: auto; }
-}
 
 /* ---------- TV internals (1920x1080 space) ---------- */
 .screen { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden; user-select: none; }
@@ -471,3 +461,11 @@ pre.ini {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* ---------- confirm dialog (replaces window.confirm and window.prompt) ---------- */
+dialog.ask { width: min(420px, calc(100vw - 32px)); max-height: none; }
+.ask form { display: grid; gap: 10px; padding: 18px; }
+.ask h2 { margin: 0; font-size: 16px; }
+.ask p { margin: 0; color: var(--muted); line-height: 1.5; }
+.ask-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.ask .btn.primary.danger { background: var(--err); color: #fff; }

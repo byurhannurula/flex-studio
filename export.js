@@ -29,7 +29,7 @@ function slugify(title, taken) {
 }
 
 // Give every studio-made icon a file name. "keep" icons are files that
-// already exist on the box, so their path stays as it was.
+// already exist on the HTPC, so their path stays as it was.
 export function planIcons(state) {
   const taken = new Set();
   const plan = [];
@@ -87,9 +87,10 @@ export async function exportBundle(state, wallpapers) {
   const fonts = new Set([state.settings.Titles.Font, state.settings.Clock.Font].filter(Boolean).map((p) => p.split('/').pop()));
   for (const f of fonts) {
     try {
-      files.push({ name: `flex-launcher/assets/fonts/${f}`, data: await bytes(`assets/fonts/${f}`) });
+      const own = state.fonts?.find((x) => x.file === f);
+      files.push({ name: `flex-launcher/assets/fonts/${f}`, data: await bytes(own ? own.data : `assets/fonts/${f}`) });
     } catch {
-      // A font that is not bundled here is expected to exist on the box already.
+      // A font that is not bundled here is expected to exist on the HTPC already.
     }
   }
 
@@ -97,7 +98,7 @@ export async function exportBundle(state, wallpapers) {
     name: 'flex-launcher/INSTALL.txt',
     data: new TextEncoder().encode([
       `Copy this folder to ${state.basePath} on the HTPC, for example:`,
-      `  scp -r flex-launcher/* bbn@10.96.3.99:${state.basePath}/`,
+      `  scp -r flex-launcher/* <user>@<htpc-address>:${state.basePath}/`,
       'Keep a copy of the old config.ini first. Then restart Flex Launcher.',
       '',
     ].join('\n')),
