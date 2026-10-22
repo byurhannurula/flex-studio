@@ -1,0 +1,6 @@
+node_modules/
+.wrangler/
+pnpm-lock.yaml
+public/assets/
+public/brands.js
+public/glyphs.js

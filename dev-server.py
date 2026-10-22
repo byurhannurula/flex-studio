@@ -18,7 +18,7 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 4380
-    root = pathlib.Path(__file__).resolve().parent
+    root = pathlib.Path(__file__).resolve().parent / "public"
     handler = functools.partial(NoCacheHandler, directory=str(root))
     with http.server.ThreadingHTTPServer(("127.0.0.1", port), handler) as httpd:
         print(f"Flex Studio on http://localhost:{port}")

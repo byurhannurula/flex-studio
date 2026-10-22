@@ -1,0 +1,31 @@
+{
+  "name": "flex-studio",
+  "version": "0.9.0",
+  "private": true,
+  "type": "module",
+  "description": "Design the home screen of Flex Launcher 2.2 for a Linux HTPC and export config.ini, icons and wallpapers.",
+  "license": "MIT",
+  "homepage": "https://flexstudio.byurhannurula.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/byurhannurula/flex-studio.git"
+  },
+  "author": "Byurhan Nurula (https://byurhannurula.com)",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "python3 dev-server.py 4380",
+    "preview": "wrangler dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "prettier --check . && for f in public/*.js; do node --check \"$f\" || exit 1; done",
+    "deploy": "wrangler deploy",
+    "deploy:dry": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10",
+    "wrangler": "^4.151.3"
+  }
+}

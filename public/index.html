@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flex Studio</title>
+    <meta
+      name="description"
+      content="Design the home screen of Flex Launcher 2.2 for a Linux HTPC and export config.ini, icons and wallpapers."
+    />
+    <meta name="theme-color" content="#3152C9" />
+    <link rel="canonical" href="https://flexstudio.byurhannurula.com/" />
+    <meta property="og:title" content="Flex Studio" />
+    <meta
+      property="og:description"
+      content="Design the home screen of Flex Launcher 2.2 for a Linux HTPC and export config.ini, icons and wallpapers."
+    />
+    <meta property="og:url" content="https://flexstudio.byurhannurula.com/" />
+    <meta property="og:image" content="https://flexstudio.byurhannurula.com/apple-touch-icon.png" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <link rel="stylesheet" href="styles.css?v=22" />
+    <!-- Bump v when modules change: browsers may hold copies cached before the dev
+       server sent no-store, and a mix of old and new modules fails silently. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "./app.js": "./app.js?v=22",
+          "./brands.js": "./brands.js?v=22",
+          "./catalog.js": "./catalog.js?v=22",
+          "./checks.js": "./checks.js?v=22",
+          "./dock.js": "./dock.js?v=22",
+          "./export.js": "./export.js?v=22",
+          "./glyphs.js": "./glyphs.js?v=22",
+          "./icons.js": "./icons.js?v=22",
+          "./ini.js": "./ini.js?v=22",
+          "./looks.js": "./looks.js?v=22",
+          "./presets.js": "./presets.js?v=22",
+          "./stage.js": "./stage.js?v=22",
+          "./zip.js": "./zip.js?v=22"
+        }
+      }
+    </script>
+    <script>
+      // Show start-up failures on the page, so a broken load is not a silent dead button.
+      function fsShowError(msg) {
+        var box = document.getElementById('boot-error');
+        if (!box) return;
+        box.hidden = false;
+        box.querySelector('code').textContent = msg;
+      }
+      window.addEventListener('error', function (e) {
+        fsShowError(e.message + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        fsShowError(String((e.reason && e.reason.stack) || e.reason));
+      });
+    </script>
+    <script type="module">
+      import './app.js';
+    </script>
+  </head>
+  <body>
+    <div class="boot-error" id="boot-error" role="alert" hidden>
+      <strong>Something failed in Flex Studio.</strong>
+      <span>Reload with Cmd+Shift+R. If it stays, send this text:</span>
+      <code></code>
+    </div>
+    <header class="appbar">
+      <button type="button" class="brand" id="about-btn" aria-haspopup="dialog" aria-label="About Flex Studio">
+        <img src="assets/logo.svg" width="28" height="28" alt="" />
+        <span
+          ><strong>Flex Studio <em class="beta">Beta</em></strong
+          ><small>for Flex Launcher 2.2</small></span
+        >
+      </button>
+      <span class="grow"></span>
+      <button type="button" class="btn sm ghost" id="reset-all">Start over</button>
+      <button type="button" class="icon-btn" id="theme" aria-label="Theme"></button>
+      <button type="button" class="btn primary" id="export-quick">Export</button>
+    </header>
+
+    <div class="shell">
+      <main class="stage-area" aria-label="TV preview">
+        <div class="tv-bar">
+          <div class="tv-head" id="tv-head"></div>
+          <details class="activity" id="activity">
+            <summary class="chip">Activity</summary>
+            <ol id="events" reversed aria-label="Activity log"></ol>
+          </details>
+          <button type="button" class="chip present-btn" id="present">Full screen</button>
+        </div>
+        <div
+          class="tv"
+          id="stage"
+          tabindex="0"
+          role="application"
+          aria-roledescription="TV preview"
+          aria-label="TV preview. Arrow keys move, Enter opens, Backspace goes back, Esc closes an app. Click an app to edit it."
+        ></div>
+        <div class="remote" role="group" aria-label="Remote" id="remote"></div>
+      </main>
+
+      <aside class="panel" aria-label="Editor">
+        <div class="tabs" role="tablist" aria-label="Sections" id="tabs"></div>
+        <header class="panel-head">
+          <h2 id="panel-title"></h2>
+          <p id="panel-desc"></p>
+        </header>
+        <div class="panel-body" id="panel" role="tabpanel"></div>
+      </aside>
+    </div>
+
+    <dialog id="catalog" aria-labelledby="catalog-title">
+      <form method="dialog" class="dialog-head">
+        <h2 id="catalog-title">Add an app</h2>
+        <button class="icon-btn" value="close" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </button>
+      </form>
+      <input type="search" id="catalog-search" placeholder="Search apps" aria-label="Search apps" />
+      <div id="catalog-body" class="catalog-body"></div>
+    </dialog>
+
+    <dialog id="ask" class="ask" aria-labelledby="ask-title" aria-describedby="ask-body">
+      <form method="dialog">
+        <h2 id="ask-title"></h2>
+        <p id="ask-body"></p>
+        <input type="text" id="ask-input" class="field-input" spellcheck="false" hidden />
+        <div class="ask-actions">
+          <button type="button" class="btn" id="ask-cancel">Cancel</button>
+          <button type="submit" class="btn primary" value="ok" id="ask-ok"></button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="about" class="about" aria-labelledby="about-title">
+      <form method="dialog">
+        <header class="about-head">
+          <img src="assets/logo.svg" width="56" height="56" alt="" />
+          <div>
+            <h2 id="about-title">Flex Studio <em class="beta">Beta</em></h2>
+            <p>Design the home screen of Flex Launcher 2.2, then export config.ini, icons and wallpapers.</p>
+          </div>
+        </header>
+        <div class="about-note" role="note">
+          <strong>This is a beta.</strong>
+          <p>
+            It is tested only on Debian with Xfce on X11. Other distributions, desktops and Wayland are not tested. Keep
+            a copy of your old config.ini before you install a new one.
+          </p>
+        </div>
+        <p class="about-text">
+          Flex Studio runs in your browser. Your config, icons and wallpapers stay on this device. Nothing is uploaded.
+        </p>
+        <ul class="about-links" id="about-links"></ul>
+        <p class="about-fine">
+          MIT license. Not made by the Flex Launcher project. Brand icons from Simple Icons (CC0), other icons from
+          Lucide (ISC). Bundled fonts use the SIL Open Font License, Apache 2.0 or the Bitstream Vera license.
+        </p>
+        <div class="ask-actions"><button type="submit" class="btn primary" value="close">Close</button></div>
+      </form>
+    </dialog>
+
+    <button type="button" class="btn present-exit" id="present-exit" hidden>Exit full screen</button>
+
+    <div class="toast" role="status" aria-live="polite" id="toast"></div>
+  </body>
+</html>

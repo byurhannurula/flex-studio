@@ -1,0 +1,15 @@
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+
+# Modules are cache-busted with ?v=N in index.html; revalidate anyway so a
+# missed bump never mixes old and new modules.
+/*.js
+  Cache-Control: no-cache
+/*.css
+  Cache-Control: no-cache
+
+/assets/*
+  Cache-Control: public, max-age=604800
